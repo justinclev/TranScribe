@@ -12,29 +12,29 @@ linters:
   disable-all: true
   enable:
     # ── Correctness ────────────────────────────────────────────────────────
-    - errcheck        # every error return must be checked
-    - govet           # suspicious constructs (shadow, printf format, etc.)
-    - staticcheck     # SA*, S1*, QF* checks (superset of go vet)
-    - unused          # unused code
-    - ineffassign     # assigned values never used
-    - bodyclose       # HTTP response body must be closed
-    - nilerr          # return nil with non-nil error
-    - reassign        # reassign of package-level vars
+    - errcheck # every error return must be checked
+    - govet # suspicious constructs (shadow, printf format, etc.)
+    - staticcheck # SA*, S1*, QF* checks (superset of go vet)
+    - unused # unused code
+    - ineffassign # assigned values never used
+    - bodyclose # HTTP response body must be closed
+    - nilerr # return nil with non-nil error
+    - reassign # reassign of package-level vars
 
     # ── Style / best practice ──────────────────────────────────────────────
-    - gofmt           # standard formatting
-    - goimports       # import grouping and ordering
-    - misspell        # common English spelling mistakes
-    - godot           # comment sentences end with a period
-    - whitespace      # unnecessary blank lines
-    - unconvert       # unnecessary type conversions
+    - gofmt # standard formatting
+    - goimports # import grouping and ordering
+    - misspell # common English spelling mistakes
+    - godot # comment sentences end with a period
+    - whitespace # unnecessary blank lines
+    - unconvert # unnecessary type conversions
 
     # ── Security ──────────────────────────────────────────────────────────
-    - gosec           # OWASP-aligned security checks
+    - gosec # OWASP-aligned security checks
 
     # ── Complexity / maintainability ──────────────────────────────────────
-    - cyclop          # cyclomatic complexity
-    - gocognit        # cognitive complexity
+    - cyclop # cyclomatic complexity
+    - gocognit # cognitive complexity
 
 linters-settings:
   errcheck:
@@ -50,7 +50,7 @@ linters-settings:
 
   govet:
     enable:
-      - shadow         # shadowed variables are a common source of bugs
+      - shadow # shadowed variables are a common source of bugs
 
   gosec:
     excludes:
@@ -78,9 +78,9 @@ issues:
     # Test files: relax some rules that don't apply in test helpers.
     - path: "_test\\.go"
       linters:
-        - errcheck    # t.Fatal/t.Error return values needn't be checked
-        - gosec       # test fixtures use hard-coded credentials by design
-        - godot       # test function names and table entries skip punctuation
+        - errcheck # t.Fatal/t.Error return values needn't be checked
+        - gosec # test fixtures use hard-coded credentials by design
+        - godot # test function names and table entries skip punctuation
 
     # Allow long lines in template constants in generator.go.
     - path: "internal/generator/generator\\.go"
