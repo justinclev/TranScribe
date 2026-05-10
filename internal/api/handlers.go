@@ -114,31 +114,14 @@ func handleTranscribe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if configPath != "" {
-		if err := parser.ParseConfig(configPath, bp); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid transcribe.yml: "+err.Error())
+		if parseErr := parser.ParseConfig(configPath, bp); parseErr != nil {
+			writeError(w, http.StatusBadRequest, "invalid transcribe.yml: "+parseErr.Error())
 			return
 		}
 	}
 
-	// provider defaults to aws when the field is absent or empty.
-	switch p := models.Provider(r.FormValue("provider")); p {
-	case models.ProviderAWS, models.ProviderAzure, models.ProviderGCP:
-		bp.Provider = p
-	case "":
-		bp.Provider = models.ProviderAWS
-	default:
-		writeError(w, http.StatusBadRequest, "unknown provider "+string(p)+": must be aws, azure, or gcp")
-		return
-	}
-
-	// format defaults to terraform when the field is absent or empty.
-	switch f := models.OutputFormat(r.FormValue("format")); f {
-	case models.FormatTerraform, models.FormatPulumi, models.FormatCDK, models.FormatHelm:
-		bp.OutputFormat = f
-	case "":
-		bp.OutputFormat = models.FormatTerraform
-	default:
-		writeError(w, http.StatusBadRequest, "unknown format "+string(f)+": must be terraform, pulumi, cdk, or helm")
+	if err := applyDefaults(bp, r); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -151,10 +134,16 @@ func handleTranscribe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// ── 4. Zip all generated files (recursively) ──────────────────────────
+	if err := zipGeneratedFiles(w, outDir); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+	}
+}
+
+// zipGeneratedFiles zips the contents of outDir and streams it to w.
+func zipGeneratedFiles(w http.ResponseWriter, outDir string) error {
 	entries, err := os.ReadDir(outDir)
 	if err != nil || len(entries) == 0 {
-		writeError(w, http.StatusInternalServerError, "no files were generated")
-		return
+		return fmt.Errorf("no files were generated")
 	}
 
 	w.Header().Set("Content-Type", "application/zip")
@@ -163,31 +152,55 @@ func handleTranscribe(w http.ResponseWriter, r *http.Request) {
 	zw := zip.NewWriter(w)
 	defer zw.Close()
 
-	walkErr := filepath.WalkDir(outDir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
+	if walkErr := filepath.WalkDir(outDir, func(path string, d os.DirEntry, walkFnErr error) error {
+		if walkFnErr != nil {
+			return walkFnErr
 		}
 		if d.IsDir() {
 			return nil
 		}
-		rel, err := filepath.Rel(outDir, path)
-		if err != nil {
-			return err
+		rel, relErr := filepath.Rel(outDir, path)
+		if relErr != nil {
+			return relErr
 		}
-		in, err := os.Open(path)
-		if err != nil {
-			return fmt.Errorf("could not open %s: %w", rel, err)
+		in, openErr := os.Open(path)
+		if openErr != nil {
+			return fmt.Errorf("could not open %s: %w", rel, openErr)
 		}
 		defer in.Close()
 
-		ze, err := zw.Create(rel)
-		if err != nil {
-			return fmt.Errorf("could not create zip entry: %w", err)
+		ze, createErr := zw.Create(rel)
+		if createErr != nil {
+			return fmt.Errorf("could not create zip entry: %w", createErr)
 		}
-		_, err = io.Copy(ze, in)
-		return err
-	})
-	if walkErr != nil {
-		writeError(w, http.StatusInternalServerError, "could not write zip: "+walkErr.Error())
+		_, copyErr := io.Copy(ze, in)
+		return copyErr
+	}); walkErr != nil {
+		return fmt.Errorf("could not write zip: %w", walkErr)
 	}
+	return nil
+}
+
+// applyDefaults applies provider and format defaults from the request to the blueprint.
+func applyDefaults(bp *models.Blueprint, r *http.Request) error {
+	// provider defaults to aws when the field is absent or empty.
+	switch p := models.Provider(r.FormValue("provider")); p {
+	case models.ProviderAWS, models.ProviderAzure, models.ProviderGCP:
+		bp.Provider = p
+	case "":
+		bp.Provider = models.ProviderAWS
+	default:
+		return fmt.Errorf("unknown provider %s: must be aws, azure, or gcp", p)
+	}
+
+	// format defaults to terraform when the field is absent or empty.
+	switch f := models.OutputFormat(r.FormValue("format")); f {
+	case models.FormatTerraform, models.FormatPulumi, models.FormatCDK, models.FormatHelm:
+		bp.OutputFormat = f
+	case "":
+		bp.OutputFormat = models.FormatTerraform
+	default:
+		return fmt.Errorf("unknown format %s: must be terraform, pulumi, cdk, or helm", f)
+	}
+	return nil
 }

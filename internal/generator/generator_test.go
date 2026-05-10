@@ -23,8 +23,8 @@ func minimalBP() *models.Blueprint {
 		},
 		Database: models.DatabaseConfig{Engine: models.EnginePostgres},
 		Services: []models.Service{
-			{Name: "api", IAMRoleName: "test-app-api-task-role"},
-			{Name: "worker", IAMRoleName: "test-app-worker-task-role"},
+			{Name: "api", IAMRoleName: "test-app-api-task-role", CPU: 256, Memory: 512},
+			{Name: "worker", IAMRoleName: "test-app-worker-task-role", CPU: 256, Memory: 512},
 		},
 	}
 }
@@ -359,7 +359,7 @@ func TestGenerate_IAMTF_SingleService(t *testing.T) {
 	dir := t.TempDir()
 	bp := minimalBP()
 	bp.Services = []models.Service{
-		{Name: "only-svc", IAMRoleName: "myapp-only-svc-task-role"},
+		{Name: "only-svc", IAMRoleName: "myapp-only-svc-task-role", CPU: 256, Memory: 512},
 	}
 	mustGenerate(t, bp, dir)
 	content := readTestFile(t, dir, "iam.tf")
@@ -397,7 +397,7 @@ func TestGenerate_TfidConversion_InIAM(t *testing.T) {
 	dir := t.TempDir()
 	bp := minimalBP()
 	bp.Services = []models.Service{
-		{Name: "my-service", IAMRoleName: "my-app-my-service-task-role"},
+		{Name: "my-service", IAMRoleName: "my-app-my-service-task-role", CPU: 256, Memory: 512},
 	}
 	mustGenerate(t, bp, dir)
 	content := readTestFile(t, dir, "iam.tf")
@@ -984,7 +984,7 @@ func TestGenerate_AWS_ALB_PresentWhenPublicLoadBalancer(t *testing.T) {
 	bp := minimalBP()
 	bp.Network.PublicLoadBalancer = true
 	bp.Services = []models.Service{
-		{Name: "api", IAMRoleName: "test-app-api-task-role", Ports: []string{"8080:8080"}},
+		{Name: "api", IAMRoleName: "test-app-api-task-role", Ports: []string{"8080:8080"}, CPU: 256, Memory: 512},
 	}
 	mustGenerate(t, bp, dir)
 	content := readTestFile(t, dir, "alb.tf")
@@ -1177,6 +1177,8 @@ func TestGenerate_AWS_Secrets_HasSecretPerEnvVar(t *testing.T) {
 			Name:        "api",
 			IAMRoleName: "test-app-api-task-role",
 			EnvVars:     map[string]string{"DATABASE_URL": "postgres://..."},
+			CPU:         256,
+			Memory:      512,
 		},
 	}
 	mustGenerate(t, bp, dir)

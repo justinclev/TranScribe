@@ -544,8 +544,6 @@ func TestHandleTranscribe_CDK_NonAWS_Returns500(t *testing.T) {
 	assertJSONError(t, rec.Body.Bytes())
 }
 
-
-
 func TestRegisterRoutes_TranscribeEndpoint_Reachable(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux)

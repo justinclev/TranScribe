@@ -138,6 +138,7 @@ resource "aws_flow_log" "{{tfid .Name}}" {
 }
 `
 
+//nolint:gosec // this is a terraform template placeholder, not an actual credential
 const secretsTmpl = `{{- range .Services}}{{if .EnvVars}}
 # ── Secrets Manager: {{.Name}} ────────────────────────────────────────────────
 {{$svcName := .Name}}{{range $k, $v := .EnvVars}}

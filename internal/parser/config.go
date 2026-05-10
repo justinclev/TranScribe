@@ -48,10 +48,10 @@ type TranscribeConfig struct {
 
 // ServiceConfig holds the per-service overrides from transcribe.yml.
 type ServiceConfig struct {
-	CPU             int    `yaml:"cpu"`              // Fargate CPU units (256, 512, 1024, 2048, 4096)
-	Memory          int    `yaml:"memory"`           // Fargate memory in MiB
-	MinCount        int    `yaml:"min_count"`        // minimum desired running task count
-	MaxCount        int    `yaml:"max_count"`        // maximum desired task count (autoscaling ceiling)
+	CPU             int    `yaml:"cpu"`               // Fargate CPU units (256, 512, 1024, 2048, 4096)
+	Memory          int    `yaml:"memory"`            // Fargate memory in MiB
+	MinCount        int    `yaml:"min_count"`         // minimum desired running task count
+	MaxCount        int    `yaml:"max_count"`         // maximum desired task count (autoscaling ceiling)
 	HealthCheckPath string `yaml:"health_check_path"` // ALB target group health check path (default: /health)
 }
 

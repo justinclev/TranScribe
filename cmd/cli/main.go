@@ -13,10 +13,10 @@ import (
 )
 
 func main() {
-	filePath   := flag.String("file", "", "Path to the docker-compose.yml file to transcribe (required)")
+	filePath := flag.String("file", "", "Path to the docker-compose.yml file to transcribe (required)")
 	configPath := flag.String("config", "", "Path to an optional transcribe.yml sidecar config file")
-	provider   := flag.String("provider", "aws", "Target cloud provider: aws, azure, or gcp")
-	format     := flag.String("format", "terraform", "Output format: terraform, pulumi, cdk, or helm")
+	provider := flag.String("provider", "aws", "Target cloud provider: aws, azure, or gcp")
+	format := flag.String("format", "terraform", "Output format: terraform, pulumi, cdk, or helm")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: transcribe -file <path/to/docker-compose.yml> [-config <path/to/transcribe.yml>] [-provider aws|azure|gcp] [-format terraform|pulumi|cdk|helm]\n\n")
 		fmt.Fprintf(os.Stderr, "Transcribe converts a docker-compose file into hardened, SOC2-compliant infrastructure code.\n\n")
@@ -57,7 +57,7 @@ func main() {
 	}
 
 	// Step 1b — Apply optional sidecar config overrides.
-	if err := parser.ParseConfig(*configPath, bp); err != nil {
+	if err = parser.ParseConfig(*configPath, bp); err != nil {
 		fmt.Fprintf(os.Stderr, "error: transcribe.yml: %v\n", err)
 		os.Exit(1)
 	}
