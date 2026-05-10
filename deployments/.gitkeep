@@ -1,0 +1,9 @@
+# deployments/
+
+Infrastructure-as-code for running the Transcribe service itself
+(not the Terraform it generates for users).
+
+Suggested layout:
+  deployments/
+  ├── docker/          # Dockerfile(s) for the Go server image
+  └── terraform/       # ECS/Fargate deployment of the Transcribe API

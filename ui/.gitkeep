@@ -1,0 +1,8 @@
+# ui/
+
+Angular frontend for the Transcribe web application.
+
+Scaffold with:
+  ng new transcribe-ui --routing --style=scss
+
+Then move the generated files into this directory.

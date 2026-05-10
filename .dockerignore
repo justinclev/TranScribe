@@ -1,0 +1,44 @@
+# .dockerignore — keep the build context lean and reproducible
+#
+# Anything listed here is excluded from the tarball Docker sends to the
+# daemon.  Smaller context = faster builds and no accidental secret leaks.
+
+# ── Version control ───────────────────────────────────────────────────────
+.git
+.gitignore
+.gitattributes
+
+# ── Local dev tooling ────────────────────────────────────────────────────
+.env
+.env.*
+*.local
+
+# ── Build / test artefacts ───────────────────────────────────────────────
+out/
+/tmp/
+*.test
+*.out
+coverage.html
+
+# ── IDE / editor metadata ────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# ── CI / CD config (not needed inside the image) ────────────────────────
+.github/
+
+# ── Documentation & assets (not needed inside the image) ────────────────
+*.md
+LICENSE
+docs/
+
+# ── Angular UI source (built separately, served from CDN or Nginx) ───────
+ui/
+
+# ── Docker files themselves (avoid self-referential loops) ──────────────
+Dockerfile
+docker-compose*.yml
+.dockerignore

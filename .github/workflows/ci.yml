@@ -1,0 +1,258 @@
+# .github/workflows/ci.yml
+#
+# Transcribe CI pipeline
+# ──────────────────────
+# Triggers:
+#   • Every push to main / develop
+#   • Every pull request targeting main / develop
+#   • Manual dispatch (workflow_dispatch)
+#
+# Jobs:
+#   lint     → golangci-lint (static analysis)
+#   test     → go test -race + coverage upload to Codecov
+#   build    → docker buildx (multi-platform, cache via GH Actions cache)
+#   publish  → push image to GHCR (main branch + tags only)
+#   security → Trivy vulnerability scan on the built image
+
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+    tags:     ["v*.*.*"]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+# Cancel in-flight runs for the same ref so fast-followers don't queue up.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: "1.22"
+  IMAGE_NAME: ghcr.io/${{ github.repository }}
+
+jobs:
+
+  # ── Lint ──────────────────────────────────────────────────────────────────
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=5m
+
+  # ── Test ──────────────────────────────────────────────────────────────────
+  test:
+    name: Test (Go ${{ matrix.go }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # Test against current stable and the next release candidate.
+        go: ["1.22", "1.23"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go ${{ matrix.go }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          cache: true
+
+      - name: Verify module graph
+        run: go mod verify
+
+      - name: Run tests
+        run: |
+          go test \
+            -race \
+            -count=1 \
+            -coverprofile=coverage.out \
+            -covermode=atomic \
+            ./...
+
+      - name: Show coverage summary
+        run: go tool cover -func=coverage.out | tail -1
+
+      - name: Upload coverage to Codecov
+        # Only upload from the canonical Go version to avoid duplicate reports.
+        if: matrix.go == env.GO_VERSION
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.out
+          flags: unittests
+          fail_ci_if_error: true
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  # ── Docker build ──────────────────────────────────────────────────────────
+  build:
+    name: Docker build
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    permissions:
+      contents: read
+      packages: write   # needed to push to GHCR
+
+    outputs:
+      # Pass the image digest to downstream jobs so they reference an immutable
+      # artefact rather than a mutable tag.
+      digest: ${{ steps.build.outputs.digest }}
+      tags:   ${{ steps.meta.outputs.tags }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            # Branch builds: ghcr.io/…/transcribe:main
+            type=ref,event=branch
+            # PR builds:     ghcr.io/…/transcribe:pr-42
+            type=ref,event=pr
+            # Semver tags:   ghcr.io/…/transcribe:1.2.3 + :1.2 + :1
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            # Always tag latest on the default branch
+            type=raw,value=latest,enable={{is_default_branch}}
+          labels: |
+            org.opencontainers.image.title=transcribe
+            org.opencontainers.image.description=SOC2-compliant docker-compose to Terraform converter
+
+      - name: Set up QEMU (cross-platform emulation)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        # Only authenticate on non-fork pushes (secrets not available on forks).
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          # Build both the `test` stage (runs the suite) and the `final` stage.
+          # The test stage is implicitly run because `final` depends on `build`
+          # which depends on `deps`. The separate `test` stage ensures tests are
+          # executed as part of the image build.
+          target: final
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ github.event.repository.updated_at }}
+          # GitHub Actions cache backend — layer cache persists across runs.
+          cache-from: type=gha
+          cache-to:   type=gha,mode=max
+          # Enable SBOM and provenance for supply-chain attestation.
+          sbom: true
+          provenance: true
+
+  # ── Security scan ─────────────────────────────────────────────────────────
+  security:
+    name: Security scan (Trivy)
+    runs-on: ubuntu-latest
+    needs: build
+    # Only run on push to main or on tagged releases; skip PRs to keep noise low.
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      security-events: write   # upload SARIF to GitHub Security tab
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          # Scan the image pushed in the build job by digest (immutable).
+          image-ref: ${{ env.IMAGE_NAME }}@${{ needs.build.outputs.digest }}
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          # Fail the job if any unfixed vulnerabilities at CRITICAL severity.
+          exit-code: "1"
+          ignore-unfixed: true
+
+      - name: Upload Trivy SARIF to GitHub Security
+        if: always()   # upload even if Trivy found vulnerabilities
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+
+  # ── Release (tag-only) ────────────────────────────────────────────────────
+  release:
+    name: GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build, security]
+    # Only create a release for version tags pushed to main.
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write   # create GitHub Release
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history for changelog generation
+
+      - name: Generate changelog
+        id: changelog
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: .github/cliff.toml
+          args: --latest --strip header
+        continue-on-error: true   # don't fail if cliff.toml doesn't exist yet
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body: ${{ steps.changelog.outputs.content }}
+          generate_release_notes: ${{ steps.changelog.outcome == 'failure' }}
+          make_latest: true

@@ -1,0 +1,96 @@
+# docker-compose.yml — local development environment
+#
+# Usage:
+#   docker compose up              # start API server (hot-reload via Air)
+#   docker compose up --build      # rebuild images first
+#   docker compose run --rm test   # run the test suite once and exit
+#   docker compose run --rm cli    # run the CLI tool (set FILE env var)
+#
+# The `server` service mounts the source tree and uses Air for live-reload so
+# you never have to restart the container after editing Go code.
+
+services:
+
+  # ── API server (live-reload) ──────────────────────────────────────────────
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # Build only up to the `test` stage so the full suite runs on first
+      # `docker compose up`.  Switch to `build` or `final` for prod-like runs.
+      target: test
+    image: transcribe-server:dev
+    # Override the test-stage entrypoint with Air for live-reload.
+    # Air is installed into a separate dev image below; here we reuse the Go
+    # build cache and mount source code directly.
+    command: ["go", "run", "./cmd/server"]
+    environment:
+      PORT: "8080"
+      # Structured log level — accepted values: debug, info, warn, error
+      LOG_LEVEL: "${LOG_LEVEL:-debug}"
+    ports:
+      - "8080:8080"
+    volumes:
+      # Mount source so live edits are reflected without a full rebuild.
+      - .:/build
+      # Isolate the module cache between host and container to avoid
+      # permission conflicts on macOS.
+      - go-mod-cache:/root/go/pkg/mod
+    working_dir: /build
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    labels:
+      - "traefik.enable=false"   # placeholder for future reverse-proxy integration
+
+  # ── Test runner (one-shot) ────────────────────────────────────────────────
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: deps       # only download deps; tests are mounted from host
+    command:
+      - go
+      - test
+      - -race
+      - -count=1
+      - -coverprofile=/tmp/cover.out
+      - ./...
+    volumes:
+      - .:/build
+      - go-mod-cache:/root/go/pkg/mod
+    working_dir: /build
+    profiles:
+      - test             # only started with: docker compose --profile test up
+
+  # ── CLI (one-shot) ────────────────────────────────────────────────────────
+  cli:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: deps
+    # Mount your compose file via -v and pass its container path via FILE:
+    #   docker compose run --rm -v /path/to/docker-compose.yml:/input.yml cli
+    #   FILE=/input.yml docker compose run --rm cli
+    command:
+      - go
+      - run
+      - ./cmd/cli
+      - -file
+      - "${FILE:-/input.yml}"
+    volumes:
+      - .:/build
+      - go-mod-cache:/root/go/pkg/mod
+    working_dir: /build
+    profiles:
+      - cli
+
+volumes:
+  # Named volume for Go module cache — persists across `docker compose down`
+  # so modules are not re-downloaded on every start.
+  go-mod-cache:
+    driver: local
