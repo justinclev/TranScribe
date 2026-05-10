@@ -443,3 +443,175 @@ func TestParse_ScalarEnvironment_ReturnsError(t *testing.T) {
 		t.Fatal("expected error when environment is a scalar, got nil")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// ParseConfig — sidecar transcribe.yml
+// ---------------------------------------------------------------------------
+
+func writeTempConfig(t *testing.T, dir, content string) string {
+	t.Helper()
+	path := dir + "/transcribe.yml"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func baseBlueprint(t *testing.T) *models.Blueprint {
+	t.Helper()
+	dir := t.TempDir()
+	compose := "version: \"3.8\"\nservices:\n  api:\n    image: nginx:latest\n    ports:\n      - \"8080:8080\"\n  worker:\n    image: my/worker:1.0\n"
+	composePath := dir + "/docker-compose.yml"
+	if err := os.WriteFile(composePath, []byte(compose), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bp, err := Parse(composePath)
+	if err != nil {
+		t.Fatalf("base compose parse failed: %v", err)
+	}
+	return bp
+}
+
+func TestParseConfig_EmptyPath_IsNoop(t *testing.T) {
+	bp := baseBlueprint(t)
+	origName := bp.Name
+	if err := ParseConfig("", bp); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bp.Name != origName {
+		t.Error("ParseConfig with empty path should not modify the blueprint")
+	}
+}
+
+func TestParseConfig_MissingFile_IsNoop(t *testing.T) {
+	bp := baseBlueprint(t)
+	origRegion := bp.Region
+	if err := ParseConfig("/nonexistent/transcribe.yml", bp); err != nil {
+		t.Fatalf("missing sidecar file should not error, got: %v", err)
+	}
+	if bp.Region != origRegion {
+		t.Error("missing sidecar file should not modify the blueprint")
+	}
+}
+
+func TestParseConfig_OverridesName(t *testing.T) {
+	bp := baseBlueprint(t)
+	dir := t.TempDir()
+	cfgPath := writeTempConfig(t, dir, "name: my-app\n")
+	if err := ParseConfig(cfgPath, bp); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bp.Name != "my-app" {
+		t.Errorf("Name=%q, want my-app", bp.Name)
+	}
+}
+
+func TestParseConfig_OverridesRegion(t *testing.T) {
+	bp := baseBlueprint(t)
+	dir := t.TempDir()
+	cfgPath := writeTempConfig(t, dir, "region: eu-west-1\n")
+	if err := ParseConfig(cfgPath, bp); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bp.Region != "eu-west-1" {
+		t.Errorf("Region=%q, want eu-west-1", bp.Region)
+	}
+}
+
+func TestParseConfig_OverridesVPCCidr(t *testing.T) {
+	bp := baseBlueprint(t)
+	dir := t.TempDir()
+	cfgPath := writeTempConfig(t, dir, "vpc_cidr: 172.16.0.0/12\n")
+	if err := ParseConfig(cfgPath, bp); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bp.Network.VPCCidr != "172.16.0.0/12" {
+		t.Errorf("VPCCidr=%q, want 172.16.0.0/12", bp.Network.VPCCidr)
+	}
+}
+
+func TestParseConfig_OverridesDatabaseEngine(t *testing.T) {
+	bp := baseBlueprint(t)
+	dir := t.TempDir()
+	cfgPath := writeTempConfig(t, dir, "database:\n  engine: aurora-postgres\n")
+	if err := ParseConfig(cfgPath, bp); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bp.Database.Engine != models.EngineAuroraPostgres {
+		t.Errorf("Database.Engine=%q, want aurora-postgres", bp.Database.Engine)
+	}
+}
+
+func TestParseConfig_OverridesDatabaseInstanceClass(t *testing.T) {
+	bp := baseBlueprint(t)
+	dir := t.TempDir()
+	cfgPath := writeTempConfig(t, dir, "database:\n  instance_class: db.r6g.large\n")
+	if err := ParseConfig(cfgPath, bp); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bp.Database.InstanceClass != "db.r6g.large" {
+		t.Errorf("Database.InstanceClass=%q, want db.r6g.large", bp.Database.InstanceClass)
+	}
+}
+
+func TestParseConfig_OverridesServiceSizing(t *testing.T) {
+	bp := baseBlueprint(t)
+	dir := t.TempDir()
+	cfgPath := writeTempConfig(t, dir, "services:\n  api:\n    cpu: 1024\n    memory: 2048\n    min_count: 2\n    max_count: 10\n")
+	if err := ParseConfig(cfgPath, bp); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	api := serviceByName(t, bp, "api")
+	if api.CPU != 1024 {
+		t.Errorf("api.CPU=%d, want 1024", api.CPU)
+	}
+	if api.Memory != 2048 {
+		t.Errorf("api.Memory=%d, want 2048", api.Memory)
+	}
+	if api.MinCount != 2 {
+		t.Errorf("api.MinCount=%d, want 2", api.MinCount)
+	}
+	if api.MaxCount != 10 {
+		t.Errorf("api.MaxCount=%d, want 10", api.MaxCount)
+	}
+}
+
+func TestParseConfig_UnmentionedService_Unchanged(t *testing.T) {
+	bp := baseBlueprint(t)
+	dir := t.TempDir()
+	// Only override 'api'; 'worker' should keep defaults.
+	cfgPath := writeTempConfig(t, dir, "services:\n  api:\n    cpu: 512\n")
+	if err := ParseConfig(cfgPath, bp); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	worker := serviceByName(t, bp, "worker")
+	if worker.CPU != 256 {
+		t.Errorf("worker.CPU=%d, want default 256", worker.CPU)
+	}
+}
+
+func TestParseConfig_InvalidYAML_ReturnsError(t *testing.T) {
+	bp := baseBlueprint(t)
+	dir := t.TempDir()
+	cfgPath := writeTempConfig(t, dir, "this: is: broken: yaml: ][")
+	if err := ParseConfig(cfgPath, bp); err == nil {
+		t.Fatal("expected error for invalid config YAML")
+	}
+}
+
+func TestParseConfig_DefaultServiceSizing(t *testing.T) {
+	bp := baseBlueprint(t)
+	api := serviceByName(t, bp, "api")
+	if api.CPU != 256 {
+		t.Errorf("default CPU=%d, want 256", api.CPU)
+	}
+	if api.Memory != 512 {
+		t.Errorf("default Memory=%d, want 512", api.Memory)
+	}
+	if api.MinCount != 1 {
+		t.Errorf("default MinCount=%d, want 1", api.MinCount)
+	}
+	if api.MaxCount != 4 {
+		t.Errorf("default MaxCount=%d, want 4", api.MaxCount)
+	}
+}

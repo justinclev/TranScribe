@@ -16,6 +16,7 @@ import (
 	"github.com/justinclev/transcribe/internal/generator"
 	"github.com/justinclev/transcribe/internal/hardener"
 	"github.com/justinclev/transcribe/internal/parser"
+	"github.com/justinclev/transcribe/pkg/models"
 )
 
 // maxUploadBytes caps the multipart memory buffer at 8 MiB; anything larger
@@ -86,11 +87,58 @@ func handleTranscribe(w http.ResponseWriter, r *http.Request) {
 	}
 	dst.Close()
 
-	// ── 3. Parse → Harden → Generate ──────────────────────────────────────
+	// Optional sidecar: if the caller included a "config" field, persist it too.
+	configPath := ""
+	if configFile, _, cfgErr := r.FormFile("config"); cfgErr == nil {
+		defer configFile.Close()
+		configPath = filepath.Join(tmpDir, "transcribe.yml")
+		cfgDst, cfgCreateErr := os.Create(configPath)
+		if cfgCreateErr != nil {
+			writeError(w, http.StatusInternalServerError, "could not create config temp file")
+			return
+		}
+		if _, cfgCopyErr := io.Copy(cfgDst, configFile); cfgCopyErr != nil {
+			cfgDst.Close()
+			writeError(w, http.StatusInternalServerError, "could not save config file")
+			return
+		}
+		cfgDst.Close()
+	}
+
+	// ── 3. Parse → (optionally apply sidecar config) → Harden → Generate ──
 	bp, err := parser.Parse(composePath)
 	if err != nil {
 		// Treat parse failures as client errors: the uploaded YAML was invalid.
 		writeError(w, http.StatusBadRequest, "invalid docker-compose file: "+err.Error())
+		return
+	}
+
+	if configPath != "" {
+		if err := parser.ParseConfig(configPath, bp); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid transcribe.yml: "+err.Error())
+			return
+		}
+	}
+
+	// provider defaults to aws when the field is absent or empty.
+	switch p := models.Provider(r.FormValue("provider")); p {
+	case models.ProviderAWS, models.ProviderAzure, models.ProviderGCP:
+		bp.Provider = p
+	case "":
+		bp.Provider = models.ProviderAWS
+	default:
+		writeError(w, http.StatusBadRequest, "unknown provider "+string(p)+": must be aws, azure, or gcp")
+		return
+	}
+
+	// format defaults to terraform when the field is absent or empty.
+	switch f := models.OutputFormat(r.FormValue("format")); f {
+	case models.FormatTerraform, models.FormatPulumi, models.FormatCDK, models.FormatHelm:
+		bp.OutputFormat = f
+	case "":
+		bp.OutputFormat = models.FormatTerraform
+	default:
+		writeError(w, http.StatusBadRequest, "unknown format "+string(f)+": must be terraform, pulumi, cdk, or helm")
 		return
 	}
 
@@ -102,8 +150,12 @@ func handleTranscribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ── 4. Zip the generated .tf files ────────────────────────────────────
-	tfFiles := []string{"main.tf", "vpc.tf", "iam.tf"}
+	// ── 4. Zip all generated files (recursively) ──────────────────────────
+	entries, err := os.ReadDir(outDir)
+	if err != nil || len(entries) == 0 {
+		writeError(w, http.StatusInternalServerError, "no files were generated")
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", `attachment; filename="transcribe-out.zip"`)
@@ -111,28 +163,31 @@ func handleTranscribe(w http.ResponseWriter, r *http.Request) {
 	zw := zip.NewWriter(w)
 	defer zw.Close()
 
-	for _, name := range tfFiles {
-		src := filepath.Join(outDir, name)
-
-		in, err := os.Open(src)
+	walkErr := filepath.WalkDir(outDir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			// File should always exist after a successful Generate; treat as 500.
-			writeError(w, http.StatusInternalServerError, fmt.Sprintf("could not open %s: %v", name, err))
-			return
+			return err
 		}
-
-		entry, err := zw.Create(name)
+		if d.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(outDir, path)
 		if err != nil {
-			in.Close()
-			writeError(w, http.StatusInternalServerError, "could not create zip entry: "+err.Error())
-			return
+			return err
 		}
+		in, err := os.Open(path)
+		if err != nil {
+			return fmt.Errorf("could not open %s: %w", rel, err)
+		}
+		defer in.Close()
 
-		if _, err = io.Copy(entry, in); err != nil {
-			in.Close()
-			writeError(w, http.StatusInternalServerError, "could not write zip entry: "+err.Error())
-			return
+		ze, err := zw.Create(rel)
+		if err != nil {
+			return fmt.Errorf("could not create zip entry: %w", err)
 		}
-		in.Close()
+		_, err = io.Copy(ze, in)
+		return err
+	})
+	if walkErr != nil {
+		writeError(w, http.StatusInternalServerError, "could not write zip: "+walkErr.Error())
 	}
 }

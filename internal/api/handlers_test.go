@@ -368,9 +368,183 @@ func TestHandleTranscribe_WrongFieldName_Returns400(t *testing.T) {
 	}
 }
 
+// multipartRequestWithFields builds a multipart POST with the given file
+// content in the "file" field plus any extra string form fields.
+func multipartRequestWithFields(t *testing.T, content string, extra map[string]string) *http.Request {
+	t.Helper()
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	fw, err := mw.CreateFormFile("file", "docker-compose.yml")
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	if _, err := io.WriteString(fw, content); err != nil {
+		t.Fatalf("write content: %v", err)
+	}
+	for k, v := range extra {
+		if err := mw.WriteField(k, v); err != nil {
+			t.Fatalf("write field %s: %v", k, err)
+		}
+	}
+	mw.Close()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/transcribe", &buf)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	return req
+}
+
 // ---------------------------------------------------------------------------
-// RegisterRoutes integration
+// Provider field
 // ---------------------------------------------------------------------------
+
+func TestHandleTranscribe_Provider_AWS_Explicit_Returns200(t *testing.T) {
+	req := multipartRequestWithFields(t, minimalCompose, map[string]string{"provider": "aws"})
+	rec := httptest.NewRecorder()
+	handleTranscribe(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleTranscribe_Provider_Azure_Returns200(t *testing.T) {
+	req := multipartRequestWithFields(t, minimalCompose, map[string]string{"provider": "azure"})
+	rec := httptest.NewRecorder()
+	handleTranscribe(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleTranscribe_Provider_GCP_Returns200(t *testing.T) {
+	req := multipartRequestWithFields(t, minimalCompose, map[string]string{"provider": "gcp"})
+	rec := httptest.NewRecorder()
+	handleTranscribe(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleTranscribe_Provider_Unknown_Returns400(t *testing.T) {
+	req := multipartRequestWithFields(t, minimalCompose, map[string]string{"provider": "digitalocean"})
+	rec := httptest.NewRecorder()
+	handleTranscribe(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 for unknown provider", rec.Code)
+	}
+	assertJSONError(t, rec.Body.Bytes())
+}
+
+func TestHandleTranscribe_Provider_Unknown_ErrorMessage(t *testing.T) {
+	req := multipartRequestWithFields(t, minimalCompose, map[string]string{"provider": "digitalocean"})
+	rec := httptest.NewRecorder()
+	handleTranscribe(rec, req)
+	var e apiError
+	if err := json.Unmarshal(rec.Body.Bytes(), &e); err != nil {
+		t.Fatalf("response not JSON: %v", err)
+	}
+	if !strings.Contains(e.Error, "unknown provider") {
+		t.Errorf("error = %q, want to contain 'unknown provider'", e.Error)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Format field
+// ---------------------------------------------------------------------------
+
+func TestHandleTranscribe_Format_Terraform_Explicit_Returns200(t *testing.T) {
+	req := multipartRequestWithFields(t, minimalCompose, map[string]string{"format": "terraform"})
+	rec := httptest.NewRecorder()
+	handleTranscribe(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleTranscribe_Format_Pulumi_Returns200(t *testing.T) {
+	req := multipartRequestWithFields(t, minimalCompose, map[string]string{"format": "pulumi"})
+	rec := httptest.NewRecorder()
+	handleTranscribe(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleTranscribe_Format_Pulumi_ZipContainsIndexTS(t *testing.T) {
+	req := multipartRequestWithFields(t, minimalCompose, map[string]string{"format": "pulumi"})
+	rec := httptest.NewRecorder()
+	handleTranscribe(rec, req)
+	zr := openZip(t, rec)
+	files := zipFiles(zr)
+	if !files["index.ts"] {
+		t.Errorf("pulumi zip missing index.ts; files: %v", files)
+	}
+}
+
+func TestHandleTranscribe_Format_CDK_Returns200(t *testing.T) {
+	req := multipartRequestWithFields(t, minimalCompose, map[string]string{"format": "cdk"})
+	rec := httptest.NewRecorder()
+	handleTranscribe(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleTranscribe_Format_Helm_Returns200(t *testing.T) {
+	req := multipartRequestWithFields(t, minimalCompose, map[string]string{"format": "helm"})
+	rec := httptest.NewRecorder()
+	handleTranscribe(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleTranscribe_Format_Helm_ZipContainsChartYAML(t *testing.T) {
+	req := multipartRequestWithFields(t, minimalCompose, map[string]string{"format": "helm"})
+	rec := httptest.NewRecorder()
+	handleTranscribe(rec, req)
+	zr := openZip(t, rec)
+	files := zipFiles(zr)
+	if !files["Chart.yaml"] {
+		t.Errorf("helm zip missing Chart.yaml; files: %v", files)
+	}
+}
+
+func TestHandleTranscribe_Format_Unknown_Returns400(t *testing.T) {
+	req := multipartRequestWithFields(t, minimalCompose, map[string]string{"format": "cloudformation"})
+	rec := httptest.NewRecorder()
+	handleTranscribe(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 for unknown format", rec.Code)
+	}
+	assertJSONError(t, rec.Body.Bytes())
+}
+
+func TestHandleTranscribe_Format_Unknown_ErrorMessage(t *testing.T) {
+	req := multipartRequestWithFields(t, minimalCompose, map[string]string{"format": "cloudformation"})
+	rec := httptest.NewRecorder()
+	handleTranscribe(rec, req)
+	var e apiError
+	if err := json.Unmarshal(rec.Body.Bytes(), &e); err != nil {
+		t.Fatalf("response not JSON: %v", err)
+	}
+	if !strings.Contains(e.Error, "unknown format") {
+		t.Errorf("error = %q, want to contain 'unknown format'", e.Error)
+	}
+}
+
+func TestHandleTranscribe_CDK_NonAWS_Returns500(t *testing.T) {
+	req := multipartRequestWithFields(t, minimalCompose, map[string]string{
+		"format":   "cdk",
+		"provider": "azure",
+	})
+	rec := httptest.NewRecorder()
+	handleTranscribe(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500 for CDK+azure", rec.Code)
+	}
+	assertJSONError(t, rec.Body.Bytes())
+}
+
+
 
 func TestRegisterRoutes_TranscribeEndpoint_Reachable(t *testing.T) {
 	mux := http.NewServeMux()

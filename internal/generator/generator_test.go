@@ -15,8 +15,9 @@ import (
 
 func minimalBP() *models.Blueprint {
 	return &models.Blueprint{
-		Name:   "test-app",
-		Region: "eu-west-1",
+		Name:     "test-app",
+		Provider: models.ProviderAWS,
+		Region:   "eu-west-1",
 		Network: models.NetworkConfig{
 			VPCCidr: "10.1.0.0/16",
 		},
@@ -436,5 +437,762 @@ func TestGenerate_ReadOnlyOutputDir_ReturnsError(t *testing.T) {
 	defer os.Chmod(dir, 0o755) // restore so t.TempDir cleanup works
 	if err := Generate(minimalBP(), dir); err == nil {
 		t.Fatal("expected error writing to read-only dir, got nil")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Provider dispatch
+// ---------------------------------------------------------------------------
+
+func TestGenerate_DefaultProvider_IsAWS(t *testing.T) {
+	dir := t.TempDir()
+	bp := minimalBP()
+	bp.Provider = ""
+	if err := Generate(bp, dir); err != nil {
+		t.Fatalf("Generate with empty provider: %v", err)
+	}
+	// AWS generates vpc.tf; presence confirms AWS path was taken.
+	if _, err := os.Stat(filepath.Join(dir, "vpc.tf")); err != nil {
+		t.Error("expected vpc.tf from default AWS provider")
+	}
+}
+
+func TestGenerate_UnknownProvider_ReturnsError(t *testing.T) {
+	bp := minimalBP()
+	bp.Provider = "digitalocean"
+	if err := Generate(bp, t.TempDir()); err == nil {
+		t.Fatal("expected error for unknown provider, got nil")
+	}
+}
+
+// ── Azure ────────────────────────────────────────────────────────────────────
+
+func azureBP() *models.Blueprint {
+	bp := minimalBP()
+	bp.Provider = models.ProviderAzure
+	bp.Region = "eastus"
+	return bp
+}
+
+func TestGenerate_Azure_CreatesExpectedFiles(t *testing.T) {
+	dir := t.TempDir()
+	if err := Generate(azureBP(), dir); err != nil {
+		t.Fatalf("Generate (azure): %v", err)
+	}
+	for _, name := range []string{"main.tf", "network.tf", "identity.tf"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Errorf("azure: missing file %s", name)
+		}
+	}
+}
+
+func TestGenerate_Azure_MainTF_ContainsProvider(t *testing.T) {
+	dir := t.TempDir()
+	if err := Generate(azureBP(), dir); err != nil {
+		t.Fatalf("Generate (azure): %v", err)
+	}
+	content := readTestFile(t, dir, "main.tf")
+	for _, want := range []string{`provider "azurerm"`, `source  = "hashicorp/azurerm"`, "azurerm_resource_group"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("azure main.tf missing %q", want)
+		}
+	}
+}
+
+func TestGenerate_Azure_MainTF_ContainsRegion(t *testing.T) {
+	dir := t.TempDir()
+	if err := Generate(azureBP(), dir); err != nil {
+		t.Fatalf("Generate (azure): %v", err)
+	}
+	content := readTestFile(t, dir, "main.tf")
+	if !strings.Contains(content, "eastus") {
+		t.Errorf("azure main.tf missing region:\n%s", content)
+	}
+}
+
+func TestGenerate_Azure_NetworkTF_ContainsVNet(t *testing.T) {
+	dir := t.TempDir()
+	if err := Generate(azureBP(), dir); err != nil {
+		t.Fatalf("Generate (azure): %v", err)
+	}
+	content := readTestFile(t, dir, "network.tf")
+	for _, want := range []string{"azurerm_virtual_network", "azurerm_subnet", "azurerm_nat_gateway", "public_1", "public_2", "private_1", "private_2"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("azure network.tf missing %q", want)
+		}
+	}
+}
+
+func TestGenerate_Azure_IdentityTF_HasIdentityPerService(t *testing.T) {
+	dir := t.TempDir()
+	if err := Generate(azureBP(), dir); err != nil {
+		t.Fatalf("Generate (azure): %v", err)
+	}
+	content := readTestFile(t, dir, "identity.tf")
+	if strings.Count(content, "azurerm_user_assigned_identity") < 2 {
+		t.Errorf("azure identity.tf should have at least 2 identities:\n%s", content)
+	}
+}
+
+// ── GCP ──────────────────────────────────────────────────────────────────────
+
+func gcpBP() *models.Blueprint {
+	bp := minimalBP()
+	bp.Provider = models.ProviderGCP
+	bp.Region = "us-central1"
+	return bp
+}
+
+func TestGenerate_GCP_CreatesExpectedFiles(t *testing.T) {
+	dir := t.TempDir()
+	if err := Generate(gcpBP(), dir); err != nil {
+		t.Fatalf("Generate (gcp): %v", err)
+	}
+	for _, name := range []string{"main.tf", "network.tf", "iam.tf"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Errorf("gcp: missing file %s", name)
+		}
+	}
+}
+
+func TestGenerate_GCP_MainTF_ContainsProvider(t *testing.T) {
+	dir := t.TempDir()
+	if err := Generate(gcpBP(), dir); err != nil {
+		t.Fatalf("Generate (gcp): %v", err)
+	}
+	content := readTestFile(t, dir, "main.tf")
+	for _, want := range []string{`provider "google"`, `source  = "hashicorp/google"`, "var.project_id"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("gcp main.tf missing %q", want)
+		}
+	}
+}
+
+func TestGenerate_GCP_MainTF_ContainsRegion(t *testing.T) {
+	dir := t.TempDir()
+	if err := Generate(gcpBP(), dir); err != nil {
+		t.Fatalf("Generate (gcp): %v", err)
+	}
+	content := readTestFile(t, dir, "main.tf")
+	if !strings.Contains(content, "us-central1") {
+		t.Errorf("gcp main.tf missing region:\n%s", content)
+	}
+}
+
+func TestGenerate_GCP_NetworkTF_ContainsVPC(t *testing.T) {
+	dir := t.TempDir()
+	if err := Generate(gcpBP(), dir); err != nil {
+		t.Fatalf("Generate (gcp): %v", err)
+	}
+	content := readTestFile(t, dir, "network.tf")
+	for _, want := range []string{"google_compute_network", "google_compute_subnetwork", "google_compute_router_nat", "public_1", "public_2", "private_1", "private_2"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("gcp network.tf missing %q", want)
+		}
+	}
+}
+
+func TestGenerate_GCP_IAMTF_HasServiceAccountPerService(t *testing.T) {
+	dir := t.TempDir()
+	if err := Generate(gcpBP(), dir); err != nil {
+		t.Fatalf("Generate (gcp): %v", err)
+	}
+	content := readTestFile(t, dir, "iam.tf")
+	if strings.Count(content, "google_service_account") < 2 {
+		t.Errorf("gcp iam.tf should have at least 2 service accounts:\n%s", content)
+	}
+}
+
+func TestGenerate_GCP_IAMTF_HasLoggingAndRegistryBindings(t *testing.T) {
+	dir := t.TempDir()
+	if err := Generate(gcpBP(), dir); err != nil {
+		t.Fatalf("Generate (gcp): %v", err)
+	}
+	content := readTestFile(t, dir, "iam.tf")
+	for _, want := range []string{"roles/logging.logWriter", "roles/artifactregistry.reader"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("gcp iam.tf missing binding %q", want)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Pulumi format
+// ---------------------------------------------------------------------------
+
+func pulumiAWSBP() *models.Blueprint {
+	bp := minimalBP()
+	bp.OutputFormat = models.FormatPulumi
+	return bp
+}
+
+func TestGenerate_Pulumi_AWS_CreatesExpectedFiles(t *testing.T) {
+	dir := t.TempDir()
+	if err := Generate(pulumiAWSBP(), dir); err != nil {
+		t.Fatalf("Generate (pulumi/aws): %v", err)
+	}
+	for _, name := range []string{"Pulumi.yaml", "index.ts", "package.json"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Errorf("pulumi/aws: missing file %s", name)
+		}
+	}
+}
+
+func TestGenerate_Pulumi_AWS_IndexTS_ContainsAWSProvider(t *testing.T) {
+	dir := t.TempDir()
+	if err := Generate(pulumiAWSBP(), dir); err != nil {
+		t.Fatalf("Generate (pulumi/aws): %v", err)
+	}
+	content := readTestFile(t, dir, "index.ts")
+	for _, want := range []string{"@pulumi/aws", "aws.ec2.Vpc"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("pulumi/aws index.ts missing %q", want)
+		}
+	}
+}
+
+func TestGenerate_Pulumi_Azure_CreatesExpectedFiles(t *testing.T) {
+	dir := t.TempDir()
+	bp := azureBP()
+	bp.OutputFormat = models.FormatPulumi
+	if err := Generate(bp, dir); err != nil {
+		t.Fatalf("Generate (pulumi/azure): %v", err)
+	}
+	for _, name := range []string{"Pulumi.yaml", "index.ts", "package.json"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Errorf("pulumi/azure: missing file %s", name)
+		}
+	}
+}
+
+func TestGenerate_Pulumi_Azure_IndexTS_ContainsAzureProvider(t *testing.T) {
+	dir := t.TempDir()
+	bp := azureBP()
+	bp.OutputFormat = models.FormatPulumi
+	if err := Generate(bp, dir); err != nil {
+		t.Fatalf("Generate (pulumi/azure): %v", err)
+	}
+	content := readTestFile(t, dir, "index.ts")
+	if !strings.Contains(content, "@pulumi/azure-native") {
+		t.Errorf("pulumi/azure index.ts missing @pulumi/azure-native")
+	}
+}
+
+func TestGenerate_Pulumi_GCP_CreatesExpectedFiles(t *testing.T) {
+	dir := t.TempDir()
+	bp := gcpBP()
+	bp.OutputFormat = models.FormatPulumi
+	if err := Generate(bp, dir); err != nil {
+		t.Fatalf("Generate (pulumi/gcp): %v", err)
+	}
+	for _, name := range []string{"Pulumi.yaml", "index.ts", "package.json"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Errorf("pulumi/gcp: missing file %s", name)
+		}
+	}
+}
+
+func TestGenerate_Pulumi_GCP_IndexTS_ContainsGCPProvider(t *testing.T) {
+	dir := t.TempDir()
+	bp := gcpBP()
+	bp.OutputFormat = models.FormatPulumi
+	if err := Generate(bp, dir); err != nil {
+		t.Fatalf("Generate (pulumi/gcp): %v", err)
+	}
+	content := readTestFile(t, dir, "index.ts")
+	if !strings.Contains(content, "@pulumi/gcp") {
+		t.Errorf("pulumi/gcp index.ts missing @pulumi/gcp")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// CDK format (AWS-only)
+// ---------------------------------------------------------------------------
+
+func TestGenerate_CDK_CreatesExpectedFiles(t *testing.T) {
+	dir := t.TempDir()
+	bp := minimalBP()
+	bp.OutputFormat = models.FormatCDK
+	if err := Generate(bp, dir); err != nil {
+		t.Fatalf("Generate (cdk): %v", err)
+	}
+	for _, name := range []string{"cdk.json", "package.json", "bin/app.ts", "lib/stack.ts"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Errorf("cdk: missing file %s", name)
+		}
+	}
+}
+
+func TestGenerate_CDK_StackTS_ContainsCDKLib(t *testing.T) {
+	dir := t.TempDir()
+	bp := minimalBP()
+	bp.OutputFormat = models.FormatCDK
+	if err := Generate(bp, dir); err != nil {
+		t.Fatalf("Generate (cdk): %v", err)
+	}
+	content := readTestFile(t, dir, "lib/stack.ts")
+	if !strings.Contains(content, "aws-cdk-lib") {
+		t.Errorf("cdk lib/stack.ts missing aws-cdk-lib")
+	}
+}
+
+func TestGenerate_CDK_NonAWSProvider_ReturnsError(t *testing.T) {
+	bp := azureBP()
+	bp.OutputFormat = models.FormatCDK
+	if err := Generate(bp, t.TempDir()); err == nil {
+		t.Fatal("expected error for CDK with non-AWS provider, got nil")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Helm format (cloud-agnostic)
+// ---------------------------------------------------------------------------
+
+func TestGenerate_Helm_CreatesExpectedFiles(t *testing.T) {
+	dir := t.TempDir()
+	bp := minimalBP()
+	bp.OutputFormat = models.FormatHelm
+	if err := Generate(bp, dir); err != nil {
+		t.Fatalf("Generate (helm): %v", err)
+	}
+	for _, name := range []string{"Chart.yaml", "values.yaml", "templates/deployment.yaml", "templates/service.yaml"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Errorf("helm: missing file %s", name)
+		}
+	}
+}
+
+func TestGenerate_Helm_ChartYAML_ContainsName(t *testing.T) {
+	dir := t.TempDir()
+	bp := minimalBP()
+	bp.OutputFormat = models.FormatHelm
+	if err := Generate(bp, dir); err != nil {
+		t.Fatalf("Generate (helm): %v", err)
+	}
+	content := readTestFile(t, dir, "Chart.yaml")
+	if !strings.Contains(content, "test-app") {
+		t.Errorf("helm Chart.yaml missing app name:\n%s", content)
+	}
+}
+
+func TestGenerate_Helm_DefaultFormat_IsAnyProvider(t *testing.T) {
+	for _, provider := range []models.Provider{models.ProviderAWS, models.ProviderAzure, models.ProviderGCP} {
+		provider := provider
+		t.Run(string(provider), func(t *testing.T) {
+			dir := t.TempDir()
+			bp := minimalBP()
+			bp.Provider = provider
+			bp.OutputFormat = models.FormatHelm
+			if err := Generate(bp, dir); err != nil {
+				t.Fatalf("Generate (helm/%s): %v", provider, err)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// AWS — full output file set
+// ---------------------------------------------------------------------------
+
+func TestGenerate_AWS_CreatesAllOutputFiles(t *testing.T) {
+	dir := t.TempDir()
+	mustGenerate(t, minimalBP(), dir)
+	for _, name := range []string{
+		"main.tf", "vpc.tf", "security_groups.tf", "kms.tf",
+		"ecr.tf", "logs.tf", "flow_logs.tf", "iam.tf",
+		"ecs.tf", "alb.tf", "rds.tf", "secrets.tf", "backend.tf",
+	} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Errorf("AWS: missing file %s", name)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// security_groups.tf
+// ---------------------------------------------------------------------------
+
+func TestGenerate_AWS_SG_HasALBAndECS(t *testing.T) {
+	dir := t.TempDir()
+	mustGenerate(t, minimalBP(), dir)
+	content := readTestFile(t, dir, "security_groups.tf")
+	for _, want := range []string{
+		`aws_security_group" "test_app_alb"`,
+		`aws_security_group" "test_app_ecs"`,
+		"to_port     = 443",
+		"to_port     = 80",
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("security_groups.tf missing %q", want)
+		}
+	}
+}
+
+func TestGenerate_AWS_SG_HasDBGroup_WhenDatabaseSet(t *testing.T) {
+	dir := t.TempDir()
+	bp := minimalBP()
+	bp.Database = models.DatabaseConfig{Engine: models.EnginePostgres}
+	mustGenerate(t, bp, dir)
+	content := readTestFile(t, dir, "security_groups.tf")
+	if !strings.Contains(content, `aws_security_group" "test_app_db"`) {
+		t.Errorf("security_groups.tf missing DB security group for postgres blueprint")
+	}
+}
+
+func TestGenerate_AWS_SG_NoDB_WhenNoDatabaseSet(t *testing.T) {
+	dir := t.TempDir()
+	bp := minimalBP()
+	bp.Database = models.DatabaseConfig{Engine: models.EngineNone}
+	mustGenerate(t, bp, dir)
+	content := readTestFile(t, dir, "security_groups.tf")
+	if strings.Contains(content, `aws_security_group" "test_app_db"`) {
+		t.Errorf("security_groups.tf should not emit DB SG when no database engine is set")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// kms.tf
+// ---------------------------------------------------------------------------
+
+func TestGenerate_AWS_KMS_HasKeyAndAlias(t *testing.T) {
+	dir := t.TempDir()
+	mustGenerate(t, minimalBP(), dir)
+	content := readTestFile(t, dir, "kms.tf")
+	for _, want := range []string{"aws_kms_key", "aws_kms_alias", "enable_key_rotation"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("kms.tf missing %q", want)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ecr.tf
+// ---------------------------------------------------------------------------
+
+func TestGenerate_AWS_ECR_HasRepoPerService(t *testing.T) {
+	dir := t.TempDir()
+	mustGenerate(t, minimalBP(), dir)
+	content := readTestFile(t, dir, "ecr.tf")
+	for _, svc := range []string{"api", "worker"} {
+		if !strings.Contains(content, `aws_ecr_repository" "`+svc+`"`) {
+			t.Errorf("ecr.tf missing repository for service %q", svc)
+		}
+	}
+}
+
+func TestGenerate_AWS_ECR_ImageImmutableAndScanning(t *testing.T) {
+	dir := t.TempDir()
+	mustGenerate(t, minimalBP(), dir)
+	content := readTestFile(t, dir, "ecr.tf")
+	for _, want := range []string{`"IMMUTABLE"`, "scan_on_push = true", "encryption_type"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("ecr.tf missing %q", want)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// logs.tf
+// ---------------------------------------------------------------------------
+
+func TestGenerate_AWS_Logs_HasLogGroupPerService(t *testing.T) {
+	dir := t.TempDir()
+	mustGenerate(t, minimalBP(), dir)
+	content := readTestFile(t, dir, "logs.tf")
+	for _, svc := range []string{"api", "worker"} {
+		if !strings.Contains(content, `aws_cloudwatch_log_group" "`+svc+`"`) {
+			t.Errorf("logs.tf missing log group for service %q", svc)
+		}
+	}
+}
+
+func TestGenerate_AWS_Logs_HasFlowLogGroup(t *testing.T) {
+	dir := t.TempDir()
+	mustGenerate(t, minimalBP(), dir)
+	content := readTestFile(t, dir, "logs.tf")
+	if !strings.Contains(content, "flow_logs") {
+		t.Errorf("logs.tf missing VPC flow logs log group")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// flow_logs.tf
+// ---------------------------------------------------------------------------
+
+func TestGenerate_AWS_FlowLogs_HasFlowLogResource(t *testing.T) {
+	dir := t.TempDir()
+	mustGenerate(t, minimalBP(), dir)
+	content := readTestFile(t, dir, "flow_logs.tf")
+	for _, want := range []string{"aws_flow_log", `traffic_type    = "ALL"`} {
+		if !strings.Contains(content, want) {
+			t.Errorf("flow_logs.tf missing %q", want)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ecs.tf
+// ---------------------------------------------------------------------------
+
+func TestGenerate_AWS_ECS_HasClusterAndExecutionRole(t *testing.T) {
+	dir := t.TempDir()
+	mustGenerate(t, minimalBP(), dir)
+	content := readTestFile(t, dir, "ecs.tf")
+	for _, want := range []string{
+		"aws_ecs_cluster",
+		"containerInsights",
+		"aws_ecs_cluster_capacity_providers",
+		"FARGATE",
+		"aws_iam_role",
+		"AmazonECSTaskExecutionRolePolicy",
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("ecs.tf missing %q", want)
+		}
+	}
+}
+
+func TestGenerate_AWS_ECS_HasTaskDefPerService(t *testing.T) {
+	dir := t.TempDir()
+	mustGenerate(t, minimalBP(), dir)
+	content := readTestFile(t, dir, "ecs.tf")
+	for _, svc := range []string{"api", "worker"} {
+		if !strings.Contains(content, `aws_ecs_task_definition" "`+svc+`"`) {
+			t.Errorf("ecs.tf missing task definition for service %q", svc)
+		}
+		if !strings.Contains(content, `aws_ecs_service" "`+svc+`"`) {
+			t.Errorf("ecs.tf missing ECS service for service %q", svc)
+		}
+	}
+}
+
+func TestGenerate_AWS_ECS_TaskDef_HasLogConfig(t *testing.T) {
+	dir := t.TempDir()
+	mustGenerate(t, minimalBP(), dir)
+	content := readTestFile(t, dir, "ecs.tf")
+	if !strings.Contains(content, "awslogs") {
+		t.Errorf("ecs.tf task definition missing awslogs log driver")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// alb.tf
+// ---------------------------------------------------------------------------
+
+func TestGenerate_AWS_ALB_PresentWhenPublicLoadBalancer(t *testing.T) {
+	dir := t.TempDir()
+	bp := minimalBP()
+	bp.Network.PublicLoadBalancer = true
+	bp.Services = []models.Service{
+		{Name: "api", IAMRoleName: "test-app-api-task-role", Ports: []string{"8080:8080"}},
+	}
+	mustGenerate(t, bp, dir)
+	content := readTestFile(t, dir, "alb.tf")
+	for _, want := range []string{
+		"aws_lb",
+		"aws_lb_listener",
+		"aws_lb_target_group",
+		"aws_lb_listener_rule",
+		"aws_acm_certificate",
+		"ELBSecurityPolicy-TLS13",
+		"HTTP_301",
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("alb.tf missing %q", want)
+		}
+	}
+}
+
+func TestGenerate_AWS_ALB_EmptyWhenNoPublicLoadBalancer(t *testing.T) {
+	dir := t.TempDir()
+	bp := minimalBP()
+	bp.Network.PublicLoadBalancer = false
+	mustGenerate(t, bp, dir)
+	content := readTestFile(t, dir, "alb.tf")
+	if strings.Contains(content, "aws_lb\"") {
+		t.Errorf("alb.tf should be empty when PublicLoadBalancer=false")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// rds.tf — engine dispatch
+// ---------------------------------------------------------------------------
+
+func rdsBP(engine models.DatabaseEngine) *models.Blueprint {
+	bp := minimalBP()
+	bp.Database = models.DatabaseConfig{Engine: engine, IsPrivate: true}
+	return bp
+}
+
+func TestGenerate_AWS_RDS_Postgres(t *testing.T) {
+	dir := t.TempDir()
+	mustGenerate(t, rdsBP(models.EnginePostgres), dir)
+	content := readTestFile(t, dir, "rds.tf")
+	for _, want := range []string{"aws_db_instance", `"postgres"`, "aws_db_subnet_group"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("rds.tf (postgres) missing %q", want)
+		}
+	}
+}
+
+func TestGenerate_AWS_RDS_MySQL(t *testing.T) {
+	dir := t.TempDir()
+	mustGenerate(t, rdsBP(models.EngineMySQL), dir)
+	content := readTestFile(t, dir, "rds.tf")
+	if !strings.Contains(content, `"mysql"`) {
+		t.Errorf("rds.tf (mysql) missing mysql engine")
+	}
+}
+
+func TestGenerate_AWS_RDS_AuroraPostgres(t *testing.T) {
+	dir := t.TempDir()
+	mustGenerate(t, rdsBP(models.EngineAuroraPostgres), dir)
+	content := readTestFile(t, dir, "rds.tf")
+	for _, want := range []string{"aws_rds_cluster", "serverlessv2_scaling_configuration"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("rds.tf (aurora-postgres) missing %q", want)
+		}
+	}
+}
+
+func TestGenerate_AWS_RDS_AuroraMySQL(t *testing.T) {
+	dir := t.TempDir()
+	mustGenerate(t, rdsBP(models.EngineAuroraMySQL), dir)
+	content := readTestFile(t, dir, "rds.tf")
+	if !strings.Contains(content, "aurora-mysql") {
+		t.Errorf("rds.tf (aurora-mysql) missing aurora-mysql engine")
+	}
+}
+
+func TestGenerate_AWS_RDS_DocumentDB(t *testing.T) {
+	dir := t.TempDir()
+	mustGenerate(t, rdsBP(models.EngineDocumentDB), dir)
+	content := readTestFile(t, dir, "rds.tf")
+	if !strings.Contains(content, "aws_docdb_cluster") {
+		t.Errorf("rds.tf (mongo) missing aws_docdb_cluster")
+	}
+}
+
+func TestGenerate_AWS_RDS_Redis(t *testing.T) {
+	dir := t.TempDir()
+	mustGenerate(t, rdsBP(models.EngineRedis), dir)
+	content := readTestFile(t, dir, "rds.tf")
+	for _, want := range []string{"aws_elasticache_replication_group", "at_rest_encryption_enabled = true"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("rds.tf (redis) missing %q", want)
+		}
+	}
+}
+
+func TestGenerate_AWS_RDS_Memcached(t *testing.T) {
+	dir := t.TempDir()
+	mustGenerate(t, rdsBP(models.EngineMemcached), dir)
+	content := readTestFile(t, dir, "rds.tf")
+	if !strings.Contains(content, "aws_elasticache_cluster") {
+		t.Errorf("rds.tf (memcached) missing aws_elasticache_cluster")
+	}
+}
+
+func TestGenerate_AWS_RDS_DynamoDB(t *testing.T) {
+	dir := t.TempDir()
+	mustGenerate(t, rdsBP(models.EngineDynamoDB), dir)
+	content := readTestFile(t, dir, "rds.tf")
+	for _, want := range []string{"aws_dynamodb_table", "point_in_time_recovery"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("rds.tf (dynamodb) missing %q", want)
+		}
+	}
+}
+
+func TestGenerate_AWS_RDS_Neptune(t *testing.T) {
+	dir := t.TempDir()
+	mustGenerate(t, rdsBP(models.EngineNeptune), dir)
+	content := readTestFile(t, dir, "rds.tf")
+	if !strings.Contains(content, "aws_neptune_cluster") {
+		t.Errorf("rds.tf (neptune) missing aws_neptune_cluster")
+	}
+}
+
+func TestGenerate_AWS_RDS_Cassandra(t *testing.T) {
+	dir := t.TempDir()
+	mustGenerate(t, rdsBP(models.EngineCassandra), dir)
+	content := readTestFile(t, dir, "rds.tf")
+	for _, want := range []string{"aws_keyspaces_keyspace", "aws_keyspaces_table"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("rds.tf (cassandra) missing %q", want)
+		}
+	}
+}
+
+func TestGenerate_AWS_RDS_Timestream(t *testing.T) {
+	dir := t.TempDir()
+	mustGenerate(t, rdsBP(models.EngineTimestream), dir)
+	content := readTestFile(t, dir, "rds.tf")
+	if !strings.Contains(content, "aws_timestreamwrite_database") {
+		t.Errorf("rds.tf (timestream) missing aws_timestreamwrite_database")
+	}
+}
+
+func TestGenerate_AWS_RDS_Empty_WhenNoEngine(t *testing.T) {
+	dir := t.TempDir()
+	bp := minimalBP()
+	bp.Database = models.DatabaseConfig{Engine: models.EngineNone}
+	mustGenerate(t, bp, dir)
+	content := readTestFile(t, dir, "rds.tf")
+	if strings.Contains(content, "aws_db_subnet_group") {
+		t.Errorf("rds.tf should be empty when engine is none")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// backend.tf
+// ---------------------------------------------------------------------------
+
+func TestGenerate_AWS_Backend_HasS3AndDynamoDB(t *testing.T) {
+	dir := t.TempDir()
+	mustGenerate(t, minimalBP(), dir)
+	content := readTestFile(t, dir, "backend.tf")
+	for _, want := range []string{
+		`aws_s3_bucket" "test_app_tfstate"`,
+		`aws_dynamodb_table" "test_app_tflock"`,
+		"versioning_configuration",
+		"server_side_encryption",
+		"block_public_acls",
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("backend.tf missing %q", want)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// secrets.tf
+// ---------------------------------------------------------------------------
+
+func TestGenerate_AWS_Secrets_HasSecretPerEnvVar(t *testing.T) {
+	dir := t.TempDir()
+	bp := minimalBP()
+	bp.Services = []models.Service{
+		{
+			Name:        "api",
+			IAMRoleName: "test-app-api-task-role",
+			EnvVars:     map[string]string{"DATABASE_URL": "postgres://..."},
+		},
+	}
+	mustGenerate(t, bp, dir)
+	content := readTestFile(t, dir, "secrets.tf")
+	if !strings.Contains(content, "aws_secretsmanager_secret") {
+		t.Errorf("secrets.tf missing aws_secretsmanager_secret for env var")
+	}
+}
+
+func TestGenerate_AWS_Secrets_EmptyWhenNoEnvVars(t *testing.T) {
+	dir := t.TempDir()
+	bp := minimalBP()
+	// minimalBP services have no EnvVars
+	mustGenerate(t, bp, dir)
+	content := readTestFile(t, dir, "secrets.tf")
+	if strings.Contains(content, "aws_secretsmanager_secret") {
+		t.Errorf("secrets.tf should be empty when no services have env vars")
 	}
 }

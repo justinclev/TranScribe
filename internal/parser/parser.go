@@ -127,10 +127,15 @@ func (p *v3Parser) parse(data []byte, name string) (*models.Blueprint, error) {
 		}
 
 		bp.Services = append(bp.Services, models.Service{
-			Name:    svcName,
-			Image:   svc.Image,
-			Ports:   svc.Ports,
-			EnvVars: svc.Environment,
+			Name:            svcName,
+			Image:           svc.Image,
+			Ports:           svc.Ports,
+			EnvVars:         svc.Environment,
+			CPU:             256,
+			Memory:          512,
+			MinCount:        1,
+			MaxCount:        4,
+			HealthCheckPath: "/health",
 		})
 	}
 
