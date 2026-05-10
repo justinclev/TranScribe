@@ -248,18 +248,26 @@ func testDBEngine(t *testing.T, dbImage string, want models.DatabaseEngine) {
 	}
 }
 
-func TestParse_DB_Postgres(t *testing.T)    { testDBEngine(t, "postgres:15-alpine", models.EnginePostgres) }
-func TestParse_DB_MySQL(t *testing.T)       { testDBEngine(t, "mysql:8.0", models.EngineMySQL) }
-func TestParse_DB_MariaDB(t *testing.T)     { testDBEngine(t, "mariadb:10.11", models.EngineMariaDB) }
-func TestParse_DB_Mongo(t *testing.T)       { testDBEngine(t, "mongo:7", models.EngineDocumentDB) }
-func TestParse_DB_Redis(t *testing.T)       { testDBEngine(t, "redis:7-alpine", models.EngineRedis) }
-func TestParse_DB_Memcached(t *testing.T)   { testDBEngine(t, "memcached:1.6", models.EngineMemcached) }
-func TestParse_DB_Cassandra(t *testing.T)   { testDBEngine(t, "cassandra:4.1", models.EngineCassandra) }
-func TestParse_DB_Neo4j(t *testing.T)       { testDBEngine(t, "neo4j:5-community", models.EngineNeptune) }
-func TestParse_DB_MSSQL(t *testing.T)       { testDBEngine(t, "mcr.microsoft.com/mssql/server:2022-latest", models.EngineSQLServer) }
-func TestParse_DB_BitnamiPG(t *testing.T)   { testDBEngine(t, "bitnami/postgresql:16", models.EnginePostgres) }
-func TestParse_DB_BitnamiMongo(t *testing.T){ testDBEngine(t, "bitnami/mongodb:7.0", models.EngineDocumentDB) }
-func TestParse_DB_KeyDB(t *testing.T)       { testDBEngine(t, "keydb:latest", models.EngineRedis) }
+func TestParse_DB_Postgres(t *testing.T) {
+	testDBEngine(t, "postgres:15-alpine", models.EnginePostgres)
+}
+func TestParse_DB_MySQL(t *testing.T)     { testDBEngine(t, "mysql:8.0", models.EngineMySQL) }
+func TestParse_DB_MariaDB(t *testing.T)   { testDBEngine(t, "mariadb:10.11", models.EngineMariaDB) }
+func TestParse_DB_Mongo(t *testing.T)     { testDBEngine(t, "mongo:7", models.EngineDocumentDB) }
+func TestParse_DB_Redis(t *testing.T)     { testDBEngine(t, "redis:7-alpine", models.EngineRedis) }
+func TestParse_DB_Memcached(t *testing.T) { testDBEngine(t, "memcached:1.6", models.EngineMemcached) }
+func TestParse_DB_Cassandra(t *testing.T) { testDBEngine(t, "cassandra:4.1", models.EngineCassandra) }
+func TestParse_DB_Neo4j(t *testing.T)     { testDBEngine(t, "neo4j:5-community", models.EngineNeptune) }
+func TestParse_DB_MSSQL(t *testing.T) {
+	testDBEngine(t, "mcr.microsoft.com/mssql/server:2022-latest", models.EngineSQLServer)
+}
+func TestParse_DB_BitnamiPG(t *testing.T) {
+	testDBEngine(t, "bitnami/postgresql:16", models.EnginePostgres)
+}
+func TestParse_DB_BitnamiMongo(t *testing.T) {
+	testDBEngine(t, "bitnami/mongodb:7.0", models.EngineDocumentDB)
+}
+func TestParse_DB_KeyDB(t *testing.T) { testDBEngine(t, "keydb:latest", models.EngineRedis) }
 
 // When multiple DB images appear, only the first one (map iteration order) wins.
 func TestParse_MultipleDB_FirstWins(t *testing.T) {

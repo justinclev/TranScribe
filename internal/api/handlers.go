@@ -1,7 +1,7 @@
 // Package api — handler implementations.
 // Each handler is a thin orchestration layer: it validates HTTP concerns,
-// delegates all business logic to parser/hardener/generator, then serialises
-// the response.  Keep business logic out of this file.
+// delegates all business logic to parser/hardener/generator, then serializes
+// the response. Keep business logic out of this file.
 package api
 
 import (
@@ -28,7 +28,7 @@ type apiError struct {
 	Error string `json:"error"`
 }
 
-// writeError serialises msg as a JSON apiError and sets the given status code.
+// writeError serializes msg as a JSON apiError and sets the given status code.
 // It always sets Content-Type so callers do not need to.
 func writeError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
@@ -49,7 +49,7 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 //	Content-Disposition: attachment; filename="transcribe-out.zip"
 //	Body:                zip containing main.tf, vpc.tf, iam.tf
 //
-// Error responses use JSON: {"error":"<message>"}
+// Error responses use JSON: {"error":"<message>"}.
 func handleTranscribe(w http.ResponseWriter, r *http.Request) {
 	// ── 1. Parse the multipart form ────────────────────────────────────────
 	if err := r.ParseMultipartForm(maxUploadBytes); err != nil {

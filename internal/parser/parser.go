@@ -65,7 +65,7 @@ func detectVersion(data []byte) (string, error) {
 		return "", fmt.Errorf("parser: invalid YAML: %w", err)
 	}
 	// Compose files without an explicit version key default to the latest
-	// (schema v3 behaviour for Docker Compose v2 CLI).
+	// (schema v3 behavior for Docker Compose v2 CLI).
 	if probe.Version == "" {
 		return "3", nil
 	}
@@ -149,29 +149,29 @@ var imageEngineMap = []struct {
 	engine models.DatabaseEngine
 }{
 	// Relational (RDS)
-	{"postgres",                       models.EnginePostgres},
-	{"postgis/postgis",                models.EnginePostgres},
-	{"bitnami/postgresql",             models.EnginePostgres},
-	{"mysql",                          models.EngineMySQL},
-	{"bitnami/mysql",                  models.EngineMySQL},
-	{"mariadb",                        models.EngineMariaDB},
-	{"bitnami/mariadb",                models.EngineMariaDB},
+	{"postgres", models.EnginePostgres},
+	{"postgis/postgis", models.EnginePostgres},
+	{"bitnami/postgresql", models.EnginePostgres},
+	{"mysql", models.EngineMySQL},
+	{"bitnami/mysql", models.EngineMySQL},
+	{"mariadb", models.EngineMariaDB},
+	{"bitnami/mariadb", models.EngineMariaDB},
 	// SQL Server
 	{"mcr.microsoft.com/mssql/server", models.EngineSQLServer},
-	{"microsoft/mssql-server-linux",   models.EngineSQLServer},
+	{"microsoft/mssql-server-linux", models.EngineSQLServer},
 	// Document (DocumentDB)
-	{"mongo",                          models.EngineDocumentDB},
-	{"bitnami/mongodb",                models.EngineDocumentDB},
+	{"mongo", models.EngineDocumentDB},
+	{"bitnami/mongodb", models.EngineDocumentDB},
 	// In-memory (ElastiCache)
-	{"redis",                          models.EngineRedis},
-	{"bitnami/redis",                  models.EngineRedis},
-	{"keydb",                          models.EngineRedis},
-	{"memcached",                      models.EngineMemcached},
+	{"redis", models.EngineRedis},
+	{"bitnami/redis", models.EngineRedis},
+	{"keydb", models.EngineRedis},
+	{"memcached", models.EngineMemcached},
 	// Wide-column (Keyspaces)
-	{"cassandra",                      models.EngineCassandra},
-	{"bitnami/cassandra",              models.EngineCassandra},
+	{"cassandra", models.EngineCassandra},
+	{"bitnami/cassandra", models.EngineCassandra},
 	// Graph (Neptune) — neo4j is the closest local equivalent
-	{"neo4j",                          models.EngineNeptune},
+	{"neo4j", models.EngineNeptune},
 }
 
 // detectEngine strips the image tag and checks it against imageEngineMap.

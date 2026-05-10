@@ -13,7 +13,7 @@ type ComplianceControl struct {
 type Service struct {
 	Name    string            `json:"name"    yaml:"name"`
 	Image   string            `json:"image"   yaml:"image"`
-	Ports   []string          `json:"ports"   yaml:"ports"`   // e.g. ["8080:8080"]
+	Ports   []string          `json:"ports"   yaml:"ports"` // e.g. ["8080:8080"]
 	EnvVars map[string]string `json:"env_vars" yaml:"env_vars"`
 
 	// Set by the hardener.
@@ -23,7 +23,7 @@ type Service struct {
 
 // NetworkConfig describes the target VPC topology and load-balancing strategy.
 type NetworkConfig struct {
-	VPCCidr           string `json:"vpc_cidr"            yaml:"vpc_cidr"`            // e.g. "10.0.0.0/16"
+	VPCCidr            string `json:"vpc_cidr"            yaml:"vpc_cidr"`              // e.g. "10.0.0.0/16"
 	PublicLoadBalancer bool   `json:"public_load_balancer" yaml:"public_load_balancer"` // true = internet-facing ALB
 }
 
@@ -33,44 +33,44 @@ type NetworkConfig struct {
 type DatabaseEngine string
 
 const (
-	// Relational — maps to aws_db_instance (RDS)
-	EnginePostgres  DatabaseEngine = "postgres"   // RDS PostgreSQL
-	EngineMySQL     DatabaseEngine = "mysql"       // RDS MySQL
-	EngineMariaDB   DatabaseEngine = "mariadb"     // RDS MariaDB
-	EngineOracle    DatabaseEngine = "oracle"      // RDS Oracle (SE2/EE)
-	EngineSQLServer DatabaseEngine = "sqlserver"   // RDS SQL Server
+	// Relational — maps to aws_db_instance (RDS).
+	EnginePostgres  DatabaseEngine = "postgres"  // RDS PostgreSQL
+	EngineMySQL     DatabaseEngine = "mysql"     // RDS MySQL
+	EngineMariaDB   DatabaseEngine = "mariadb"   // RDS MariaDB
+	EngineOracle    DatabaseEngine = "oracle"    // RDS Oracle (SE2/EE)
+	EngineSQLServer DatabaseEngine = "sqlserver" // RDS SQL Server
 
-	// Aurora — maps to aws_rds_cluster (Aurora Serverless v2 or provisioned)
+	// Aurora — maps to aws_rds_cluster (Aurora Serverless v2 or provisioned).
 	EngineAuroraPostgres DatabaseEngine = "aurora-postgres" // Aurora PostgreSQL-compatible
 	EngineAuroraMySQL    DatabaseEngine = "aurora-mysql"    // Aurora MySQL-compatible
 
-	// Document — maps to aws_docdb_cluster
+	// Document — maps to aws_docdb_cluster.
 	EngineDocumentDB DatabaseEngine = "mongo" // Amazon DocumentDB (MongoDB-compatible)
 
-	// In-memory — maps to aws_elasticache_replication_group
+	// In-memory — maps to aws_elasticache_replication_group.
 	EngineRedis     DatabaseEngine = "redis"     // ElastiCache for Redis
 	EngineMemcached DatabaseEngine = "memcached" // ElastiCache for Memcached
 
-	// Key-value — maps to aws_dynamodb_table
+	// Key-value — maps to aws_dynamodb_table.
 	EngineDynamoDB DatabaseEngine = "dynamodb" // Amazon DynamoDB
 
-	// Graph — maps to aws_neptune_cluster
+	// Graph — maps to aws_neptune_cluster.
 	EngineNeptune DatabaseEngine = "neptune" // Amazon Neptune (openCypher / Gremlin / SPARQL)
 
-	// Wide-column — maps to aws_keyspaces_table
+	// Wide-column — maps to aws_keyspaces_table.
 	EngineCassandra DatabaseEngine = "cassandra" // Amazon Keyspaces (Cassandra-compatible)
 
-	// Time-series — maps to Amazon Timestream (aws_timestreamwrite_database)
+	// Time-series — maps to Amazon Timestream (aws_timestreamwrite_database).
 	EngineTimestream DatabaseEngine = "timestream" // Amazon Timestream
 
-	// None — no managed database; any DB runs as a Service container
+	// None — no managed database; any DB runs as a Service container.
 	EngineNone DatabaseEngine = ""
 )
 
 // DatabaseConfig describes an optional managed database to provision
 // alongside the services.
 type DatabaseConfig struct {
-	Engine    DatabaseEngine `json:"engine"    yaml:"engine"`     // see DatabaseEngine constants
+	Engine    DatabaseEngine `json:"engine"    yaml:"engine"`      // see DatabaseEngine constants
 	IsPrivate bool           `json:"is_private" yaml:"is_private"` // true = no public endpoint
 }
 
@@ -79,7 +79,7 @@ type DatabaseConfig struct {
 // SOC2 controls on before the generator renders it into Terraform HCL.
 type Blueprint struct {
 	Name     string         `json:"name"     yaml:"name"`
-	Region   string         `json:"region"   yaml:"region"`   // AWS region, e.g. "us-east-1"
+	Region   string         `json:"region"   yaml:"region"` // AWS region, e.g. "us-east-1"
 	Services []Service      `json:"services" yaml:"services"`
 	Network  NetworkConfig  `json:"network"  yaml:"network"`
 	Database DatabaseConfig `json:"database" yaml:"database"`
