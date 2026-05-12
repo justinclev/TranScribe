@@ -403,4 +403,3 @@ resource "aws_timestreamwrite_table" "{{tfid $.Name}}_{{tfid .ServiceName}}" {
 {{- end}}
 {{- end}}
 `
-

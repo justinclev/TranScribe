@@ -190,9 +190,9 @@ services:
     health_check_path: /
 
   api:
-    cpu: 1024    # Fargate CPU units: 256 | 512 | 1024 | 2048 | 4096
+    cpu: 1024 # Fargate CPU units: 256 | 512 | 1024 | 2048 | 4096
     memory: 2048 # Fargate memory in MiB (must be compatible with cpu)
-    min_count: 2  # minimum running task count (desired_count)
+    min_count: 2 # minimum running task count (desired_count)
     max_count: 10 # maximum task count for autoscaling
     health_check_path: /api/health
     # Env var names to inject from Secrets Manager into the ECS task definition.

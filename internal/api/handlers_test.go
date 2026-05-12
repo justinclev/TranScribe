@@ -643,8 +643,8 @@ func multipartRequestWithConfig(t *testing.T, composeContent, configContent stri
 	if err != nil {
 		t.Fatalf("create form file: %v", err)
 	}
-	if _, err := io.WriteString(fw, composeContent); err != nil {
-		t.Fatalf("write compose: %v", err)
+	if _, writeErr := io.WriteString(fw, composeContent); writeErr != nil {
+		t.Fatalf("write compose: %v", writeErr)
 	}
 
 	cw, err := mw.CreateFormFile("config", "transcribe.yml")
@@ -691,4 +691,3 @@ func TestHandleTranscribe_WithInvalidConfig_Returns400(t *testing.T) {
 	}
 	assertJSONError(t, rec.Body.Bytes())
 }
-

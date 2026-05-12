@@ -7,6 +7,7 @@ package aws
 //   - Secrets Manager (secret reads without NAT)
 //   - CloudWatch Logs (log shipping without NAT)
 //   - SSM (parameter store + session manager, no NAT)
+//
 // Also creates a Gateway endpoint for S3 (free, required for ECR image layers).
 // An endpoint security group permits HTTPS from within the VPC.
 const endpointsTmpl = `# ── VPC Endpoints (NET-03) ────────────────────────────────────────────────────

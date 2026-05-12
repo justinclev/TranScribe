@@ -106,98 +106,118 @@ func rewriteDBHostRefs(bp *models.Blueprint) {
 	if len(bp.DBServiceAliases) == 0 {
 		return
 	}
+	endpoints := buildEndpointMap(bp)
+	for i := range bp.Services {
+		rewriteServiceEnvVars(&bp.Services[i], endpoints, bp.DBServiceAliases)
+	}
+}
 
-	// Build a map from compose service name → Terraform endpoint expression.
+// buildEndpointMap returns a map from compose DB service name to its Terraform
+// endpoint interpolation expression (e.g. "${aws_db_instance.myapp_db.address}").
+func buildEndpointMap(bp *models.Blueprint) map[string]string {
 	id := strings.ReplaceAll(bp.Name, "-", "_")
-	endpoints := map[string]string{} // keyed by compose service name
+	endpoints := make(map[string]string, len(bp.DBServiceAliases))
 	for svcName, engine := range bp.DBServiceAliases {
 		dbID := id + "_" + strings.ReplaceAll(svcName, "-", "_")
-		switch engine {
-		case models.EnginePostgres, models.EngineMySQL, models.EngineMariaDB,
-			models.EngineOracle, models.EngineSQLServer:
-			endpoints[svcName] = "${aws_db_instance." + dbID + ".address}"
-		case models.EngineAuroraPostgres, models.EngineAuroraMySQL:
-			endpoints[svcName] = "${aws_rds_cluster." + dbID + ".endpoint}"
-		case models.EngineDocumentDB:
-			endpoints[svcName] = "${aws_docdb_cluster." + dbID + ".endpoint}"
-		case models.EngineRedis:
-			endpoints[svcName] = "${aws_elasticache_replication_group." + dbID + ".primary_endpoint_address}"
-		case models.EngineMemcached:
-			endpoints[svcName] = "${aws_elasticache_cluster." + dbID + ".cluster_address}"
-		case models.EngineNeptune:
-			endpoints[svcName] = "${aws_neptune_cluster." + dbID + ".endpoint}"
+		if ref := tfEndpointRef(engine, dbID); ref != "" {
+			endpoints[svcName] = ref
 		}
 	}
+	return endpoints
+}
 
-	for i := range bp.Services {
-		svc := &bp.Services[i]
-		if svc.EnvVars == nil {
-			svc.EnvVars = make(map[string]string)
+// tfEndpointRef returns the Terraform resource attribute reference for the
+// given database engine and resource ID, or "" for unsupported engines.
+func tfEndpointRef(engine models.DatabaseEngine, dbID string) string {
+	switch engine {
+	case models.EnginePostgres, models.EngineMySQL, models.EngineMariaDB,
+		models.EngineOracle, models.EngineSQLServer:
+		return "${aws_db_instance." + dbID + ".address}"
+	case models.EngineAuroraPostgres, models.EngineAuroraMySQL:
+		return "${aws_rds_cluster." + dbID + ".endpoint}"
+	case models.EngineDocumentDB:
+		return "${aws_docdb_cluster." + dbID + ".endpoint}"
+	case models.EngineRedis:
+		return "${aws_elasticache_replication_group." + dbID + ".primary_endpoint_address}"
+	case models.EngineMemcached:
+		return "${aws_elasticache_cluster." + dbID + ".cluster_address}"
+	case models.EngineNeptune:
+		return "${aws_neptune_cluster." + dbID + ".endpoint}"
+	}
+	return ""
+}
+
+// rewriteServiceEnvVars rewrites env var values for a single service:
+// exact-match, URL-embedded, and auto-injected host vars.
+func rewriteServiceEnvVars(svc *models.Service, endpoints map[string]string, aliases map[string]models.DatabaseEngine) {
+	if svc.EnvVars == nil {
+		svc.EnvVars = make(map[string]string)
+	}
+	for k, v := range svc.EnvVars {
+		if rewritten, ok := rewriteEnvValue(v, endpoints); ok {
+			svc.EnvVars[k] = rewritten
 		}
+	}
+	autoInjectHostVars(svc, endpoints, aliases)
+}
 
-		for k, v := range svc.EnvVars {
-			// Exact match: DB_HOST=db → DB_HOST=${aws_db_instance...}
-			if ref, ok := endpoints[v]; ok {
-				svc.EnvVars[k] = ref
-				continue
-			}
-			// URL embedding: DATABASE_URL=postgres://db:5432/... →
-			//   replace the hostname portion with the Terraform ref.
-			for svcName, ref := range endpoints {
-				// Match "://svcName:" or "://svcName/" or "://svcName" at end.
-				for _, sep := range []string{"://" + svcName + ":", "://" + svcName + "/", "://" + svcName} {
-					if strings.Contains(v, sep) {
-						// ref is already in "${expr}" form — embed it directly
-						// so Terraform can interpolate the hostname in the URL.
-						replacement := strings.Replace(sep, svcName, ref, 1)
-						svc.EnvVars[k] = strings.Replace(v, sep, replacement, 1)
-						break
-					}
-				}
-			}
-		}
-
-		// Auto-inject: if this service has no env var referencing a managed DB/cache
-		// endpoint at all, add canonical host vars so containers can connect.
-		for svcName, engine := range bp.DBServiceAliases {
-			ref := endpoints[svcName]
-			if ref == "" {
-				continue
-			}
-			// Check if any existing env var already references this service name.
-			alreadyReferenced := false
-			for _, v := range svc.EnvVars {
-				if strings.Contains(v, svcName) {
-					alreadyReferenced = true
-					break
-				}
-			}
-			if alreadyReferenced {
-				continue
-			}
-			// Inject a canonical host var based on engine type.
-			switch engine {
-			case models.EnginePostgres, models.EngineMySQL, models.EngineMariaDB,
-				models.EngineOracle, models.EngineSQLServer,
-				models.EngineAuroraPostgres, models.EngineAuroraMySQL,
-				models.EngineDocumentDB:
-				varName := strings.ToUpper(strings.ReplaceAll(svcName, "-", "_")) + "_HOST"
-				if _, exists := svc.EnvVars[varName]; !exists {
-					svc.EnvVars[varName] = ref
-				}
-			case models.EngineRedis:
-				varName := strings.ToUpper(strings.ReplaceAll(svcName, "-", "_")) + "_HOST"
-				if _, exists := svc.EnvVars[varName]; !exists {
-					svc.EnvVars[varName] = ref
-				}
-			case models.EngineMemcached:
-				varName := strings.ToUpper(strings.ReplaceAll(svcName, "-", "_")) + "_HOST"
-				if _, exists := svc.EnvVars[varName]; !exists {
-					svc.EnvVars[varName] = ref
-				}
+// rewriteEnvValue rewrites a single env var value if it matches a DB endpoint
+// exactly or contains a DB service name as a URL hostname.
+// Returns the rewritten value and true if a replacement was made.
+func rewriteEnvValue(v string, endpoints map[string]string) (string, bool) {
+	if ref, ok := endpoints[v]; ok {
+		return ref, true
+	}
+	for svcName, ref := range endpoints {
+		for _, sep := range []string{"://" + svcName + ":", "://" + svcName + "/", "://" + svcName} {
+			if strings.Contains(v, sep) {
+				replacement := strings.Replace(sep, svcName, ref, 1)
+				return strings.Replace(v, sep, replacement, 1), true
 			}
 		}
 	}
+	return "", false
+}
+
+// autoInjectHostVars adds canonical *_HOST env vars for any managed DB/cache
+// that the service does not already reference in its existing env vars.
+func autoInjectHostVars(svc *models.Service, endpoints map[string]string, aliases map[string]models.DatabaseEngine) {
+	for svcName, engine := range aliases {
+		if !needsHostVar(engine) {
+			continue
+		}
+		ref := endpoints[svcName]
+		if ref == "" || envAlreadyReferences(svc.EnvVars, svcName) {
+			continue
+		}
+		varName := strings.ToUpper(strings.ReplaceAll(svcName, "-", "_")) + "_HOST"
+		if _, exists := svc.EnvVars[varName]; !exists {
+			svc.EnvVars[varName] = ref
+		}
+	}
+}
+
+// needsHostVar returns true for engines that benefit from a *_HOST auto-inject.
+func needsHostVar(engine models.DatabaseEngine) bool {
+	switch engine {
+	case models.EnginePostgres, models.EngineMySQL, models.EngineMariaDB,
+		models.EngineOracle, models.EngineSQLServer,
+		models.EngineAuroraPostgres, models.EngineAuroraMySQL,
+		models.EngineDocumentDB, models.EngineRedis, models.EngineMemcached:
+		return true
+	}
+	return false
+}
+
+// envAlreadyReferences returns true when any env var value already contains
+// the given DB service name (indicating the service has an explicit reference).
+func envAlreadyReferences(envVars map[string]string, svcName string) bool {
+	for _, v := range envVars {
+		if strings.Contains(v, svcName) {
+			return true
+		}
+	}
+	return false
 }
 
 // ---------------------------------------------------------------------------
@@ -206,75 +226,83 @@ func rewriteDBHostRefs(bp *models.Blueprint) {
 
 // wireDBSecrets resolves each name in Service.MappedSecrets to a concrete
 // Secrets Manager ARN Terraform expression and stores it in SecretARNOverrides.
-//
-// Resolution order:
-//  1. If the name matches a DB-generated password secret
-//     (i.e. any DatabaseConfig.ServiceName is in DBServiceAliases and the name
-//     looks like a password var), point to that secret.
-//  2. Otherwise assume the var is managed by secretsTmpl and point to the
-//     auto-generated aws_secretsmanager_secret resource for that service/var.
 func wireDBSecrets(bp *models.Blueprint) {
 	if len(bp.Services) == 0 {
 		return
 	}
-
 	bpID := strings.ReplaceAll(bp.Name, "-", "_")
-
-	// Build a quick lookup: DB service name → password secret resource id.
-	// Relational + DocDB engines get a _password secret; cache engines don't.
-	dbPasswordARN := map[string]string{} // DB ServiceName → tf expr
-	for _, db := range bp.Databases {
-		switch db.Engine {
-		case models.EnginePostgres, models.EngineMySQL, models.EngineMariaDB,
-			models.EngineOracle, models.EngineSQLServer,
-			models.EngineAuroraPostgres, models.EngineAuroraMySQL,
-			models.EngineDocumentDB:
-			dbID := bpID + "_" + strings.ReplaceAll(db.ServiceName, "-", "_")
-			dbPasswordARN[db.ServiceName] = "aws_secretsmanager_secret." + dbID + "_password.arn"
-		}
-	}
-	// Backward-compat: single Database field with a ServiceName.
-	if bp.Database.Engine != models.EngineNone && bp.Database.ServiceName != "" {
-		if _, exists := dbPasswordARN[bp.Database.ServiceName]; !exists {
-			dbID := bpID + "_" + strings.ReplaceAll(bp.Database.ServiceName, "-", "_")
-			dbPasswordARN[bp.Database.ServiceName] = "aws_secretsmanager_secret." + dbID + "_password.arn"
-		}
-	}
-
-	isPasswordLike := func(name string) bool {
-		upper := strings.ToUpper(name)
-		for _, kw := range []string{"PASSWORD", "PASSWD", "PASS"} {
-			if strings.Contains(upper, kw) {
-				return true
-			}
-		}
-		return false
-	}
-
+	dbPasswordARN := buildDBPasswordARNMap(bp, bpID)
 	for i := range bp.Services {
-		svc := &bp.Services[i]
-		if len(svc.MappedSecrets) == 0 {
+		wireServiceSecrets(&bp.Services[i], bpID, dbPasswordARN)
+	}
+}
+
+// buildDBPasswordARNMap returns a map from DB service name to its SM secret ARN
+// expression for engines that generate a password secret (RDS, Aurora, DocDB).
+func buildDBPasswordARNMap(bp *models.Blueprint, bpID string) map[string]string {
+	m := make(map[string]string)
+	for _, db := range bp.Databases {
+		if !hasPasswordSecret(db.Engine) {
 			continue
 		}
-		if svc.SecretARNOverrides == nil {
-			svc.SecretARNOverrides = make(map[string]string)
-		}
-		svcID := strings.ReplaceAll(svc.Name, "-", "_")
-		for _, varName := range svc.MappedSecrets {
-			varID := strings.ReplaceAll(varName, "-", "_")
-			// Try to match to a DB password secret first.
-			matched := false
-			if isPasswordLike(varName) {
-				for _, arn := range dbPasswordARN {
-					svc.SecretARNOverrides[varName] = arn
-					matched = true
-					break // use first DB password — caller can override via explicit mapping later
-				}
-			}
-			if !matched {
-				// Fall back to the service-scoped auto-generated secret.
-				svc.SecretARNOverrides[varName] = "aws_secretsmanager_secret." + bpID + "_" + svcID + "_" + varID + ".arn"
-			}
+		dbID := bpID + "_" + strings.ReplaceAll(db.ServiceName, "-", "_")
+		m[db.ServiceName] = "aws_secretsmanager_secret." + dbID + "_password.arn"
+	}
+	// Backward-compat: single Database field.
+	if bp.Database.Engine != models.EngineNone && bp.Database.ServiceName != "" {
+		if _, exists := m[bp.Database.ServiceName]; !exists {
+			dbID := bpID + "_" + strings.ReplaceAll(bp.Database.ServiceName, "-", "_")
+			m[bp.Database.ServiceName] = "aws_secretsmanager_secret." + dbID + "_password.arn"
 		}
 	}
+	return m
+}
+
+// hasPasswordSecret returns true for engines that create an SM password secret.
+func hasPasswordSecret(engine models.DatabaseEngine) bool {
+	switch engine {
+	case models.EnginePostgres, models.EngineMySQL, models.EngineMariaDB,
+		models.EngineOracle, models.EngineSQLServer,
+		models.EngineAuroraPostgres, models.EngineAuroraMySQL,
+		models.EngineDocumentDB:
+		return true
+	}
+	return false
+}
+
+// wireServiceSecrets populates SecretARNOverrides for a single service.
+func wireServiceSecrets(svc *models.Service, bpID string, dbPasswordARN map[string]string) {
+	if len(svc.MappedSecrets) == 0 {
+		return
+	}
+	if svc.SecretARNOverrides == nil {
+		svc.SecretARNOverrides = make(map[string]string)
+	}
+	svcID := strings.ReplaceAll(svc.Name, "-", "_")
+	for _, varName := range svc.MappedSecrets {
+		svc.SecretARNOverrides[varName] = resolveSecretARN(varName, svcID, bpID, dbPasswordARN)
+	}
+}
+
+// resolveSecretARN picks the right Secrets Manager ARN expression for a
+// MappedSecret var: DB password secret if available, otherwise a new secret.
+func resolveSecretARN(varName, svcID, bpID string, dbPasswordARN map[string]string) string {
+	if isPasswordLikeVar(varName) {
+		for _, arn := range dbPasswordARN {
+			return arn // use first DB password secret
+		}
+	}
+	varID := strings.ReplaceAll(varName, "-", "_")
+	return "aws_secretsmanager_secret." + bpID + "_" + svcID + "_" + varID + ".arn"
+}
+
+// isPasswordLikeVar returns true when the name looks like a database password.
+func isPasswordLikeVar(name string) bool {
+	upper := strings.ToUpper(name)
+	for _, kw := range []string{"PASSWORD", "PASSWD", "PASS"} {
+		if strings.Contains(upper, kw) {
+			return true
+		}
+	}
+	return false
 }

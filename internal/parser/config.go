@@ -48,11 +48,11 @@ type TranscribeConfig struct {
 
 // ServiceConfig holds the per-service overrides from transcribe.yml.
 type ServiceConfig struct {
-	CPU             int      `yaml:"cpu"`               // Fargate CPU units (256, 512, 1024, 2048, 4096)
-	Memory          int      `yaml:"memory"`            // Fargate memory in MiB
-	MinCount        int      `yaml:"min_count"`         // minimum desired running task count
-	MaxCount        int      `yaml:"max_count"`         // maximum desired task count (autoscaling ceiling)
-	HealthCheckPath string   `yaml:"health_check_path"` // ALB target group health check path (default: /health)
+	CPU             int    `yaml:"cpu"`               // Fargate CPU units (256, 512, 1024, 2048, 4096)
+	Memory          int    `yaml:"memory"`            // Fargate memory in MiB
+	MinCount        int    `yaml:"min_count"`         // minimum desired running task count
+	MaxCount        int    `yaml:"max_count"`         // maximum desired task count (autoscaling ceiling)
+	HealthCheckPath string `yaml:"health_check_path"` // ALB target group health check path (default: /health)
 	// Secrets lists env var names that must be injected from Secrets Manager.
 	// For password-like names, the hardener wires them to the DB-generated
 	// SM secret so the container receives the actual RDS password, not a
@@ -91,6 +91,15 @@ func ParseConfig(configPath string, bp *models.Blueprint) error {
 
 // applyConfig merges non-zero fields from cfg into bp.
 func applyConfig(cfg *TranscribeConfig, bp *models.Blueprint) {
+	applyTopLevelOverrides(cfg, bp)
+	applyDatabaseOverrides(cfg, bp)
+	for i := range bp.Services {
+		applyServiceOverride(&bp.Services[i], cfg.Services)
+	}
+}
+
+// applyTopLevelOverrides applies name, region, network overrides.
+func applyTopLevelOverrides(cfg *TranscribeConfig, bp *models.Blueprint) {
 	if cfg.Name != "" {
 		bp.Name = cfg.Name
 	}
@@ -103,40 +112,40 @@ func applyConfig(cfg *TranscribeConfig, bp *models.Blueprint) {
 	if cfg.Domain != "" {
 		bp.Network.Domain = cfg.Domain
 	}
+}
 
-	// Database overrides.
+// applyDatabaseOverrides applies database engine and instance class overrides.
+func applyDatabaseOverrides(cfg *TranscribeConfig, bp *models.Blueprint) {
 	if cfg.Database.Engine != "" {
-		engine := models.DatabaseEngine(strings.ToLower(cfg.Database.Engine))
-		bp.Database.Engine = engine
+		bp.Database.Engine = models.DatabaseEngine(strings.ToLower(cfg.Database.Engine))
 	}
 	if cfg.Database.InstanceClass != "" {
 		bp.Database.InstanceClass = cfg.Database.InstanceClass
 	}
+}
 
-	// Per-service sizing overrides.
-	for i := range bp.Services {
-		svc := &bp.Services[i]
-		override, ok := cfg.Services[svc.Name]
-		if !ok {
-			continue
-		}
-		if override.CPU > 0 {
-			svc.CPU = override.CPU
-		}
-		if override.Memory > 0 {
-			svc.Memory = override.Memory
-		}
-		if override.MinCount > 0 {
-			svc.MinCount = override.MinCount
-		}
-		if override.MaxCount > 0 {
-			svc.MaxCount = override.MaxCount
-		}
-		if override.HealthCheckPath != "" {
-			svc.HealthCheckPath = override.HealthCheckPath
-		}
-		if len(override.Secrets) > 0 {
-			svc.MappedSecrets = append(svc.MappedSecrets, override.Secrets...)
-		}
+// applyServiceOverride merges a single service's sizing config from the map.
+func applyServiceOverride(svc *models.Service, overrides map[string]ServiceConfig) {
+	override, ok := overrides[svc.Name]
+	if !ok {
+		return
+	}
+	if override.CPU > 0 {
+		svc.CPU = override.CPU
+	}
+	if override.Memory > 0 {
+		svc.Memory = override.Memory
+	}
+	if override.MinCount > 0 {
+		svc.MinCount = override.MinCount
+	}
+	if override.MaxCount > 0 {
+		svc.MaxCount = override.MaxCount
+	}
+	if override.HealthCheckPath != "" {
+		svc.HealthCheckPath = override.HealthCheckPath
+	}
+	if len(override.Secrets) > 0 {
+		svc.MappedSecrets = append(svc.MappedSecrets, override.Secrets...)
 	}
 }

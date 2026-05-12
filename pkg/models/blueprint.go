@@ -113,20 +113,20 @@ type DatabaseConfig struct {
 	Engine        DatabaseEngine `json:"engine"         yaml:"engine"`         // see DatabaseEngine constants
 	IsPrivate     bool           `json:"is_private"     yaml:"is_private"`     // true = no public endpoint
 	InstanceClass string         `json:"instance_class" yaml:"instance_class"` // e.g. "db.t3.medium"; overrides template default
-	ServiceName   string         `json:"service_name"   yaml:"service_name"`  // original compose service name (e.g. "db", "redis")
+	ServiceName   string         `json:"service_name"   yaml:"service_name"`   // original compose service name (e.g. "db", "redis")
 }
 
 // Blueprint is the central intermediary data model. A docker-compose file is
 // parsed and normalised into a Blueprint, which the hardener then enforces
 // SOC2 controls on before the generator renders it into Terraform HCL.
 type Blueprint struct {
-	Name         string         `json:"name"          yaml:"name"`
-	Provider     Provider       `json:"provider"      yaml:"provider"`      // target cloud: aws, azure, gcp
-	OutputFormat OutputFormat   `json:"output_format" yaml:"output_format"` // iac tool: terraform, pulumi, cdk, helm
-	Region       string         `json:"region"        yaml:"region"`        // e.g. "us-east-1", "eastus", "us-central1"
-	Services     []Service      `json:"services" yaml:"services"`
-	Network      NetworkConfig  `json:"network"  yaml:"network"`
-	Database     DatabaseConfig `json:"database" yaml:"database"` // primary DB (first detected); kept for backward compat
+	Name         string           `json:"name"          yaml:"name"`
+	Provider     Provider         `json:"provider"      yaml:"provider"`      // target cloud: aws, azure, gcp
+	OutputFormat OutputFormat     `json:"output_format" yaml:"output_format"` // iac tool: terraform, pulumi, cdk, helm
+	Region       string           `json:"region"        yaml:"region"`        // e.g. "us-east-1", "eastus", "us-central1"
+	Services     []Service        `json:"services" yaml:"services"`
+	Network      NetworkConfig    `json:"network"  yaml:"network"`
+	Database     DatabaseConfig   `json:"database" yaml:"database"`   // primary DB (first detected); kept for backward compat
 	Databases    []DatabaseConfig `json:"databases" yaml:"databases"` // all detected managed databases
 
 	// DBServiceAliases maps original compose service names (e.g. "db", "redis")

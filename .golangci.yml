@@ -5,8 +5,10 @@ run:
   timeout: 5m
   # Test files are linted with a slightly different rule set (see overrides).
   tests: true
+
+output:
   # Skip generated files and vendored code.
-  skip-files:
+  exclude-files:
     - ".*\\.pb\\.go$"
 
 linters:
@@ -42,7 +44,13 @@ linters:
 linters-settings:
   errcheck:
     # Allow ignoring errors from fmt.Print* functions (common in CLIs).
-    ignore: "fmt:.*"
+    exclude-functions:
+      - fmt.Print
+      - fmt.Println
+      - fmt.Printf
+      - fmt.Fprint
+      - fmt.Fprintln
+      - fmt.Fprintf
     check-type-assertions: true
 
   govet:

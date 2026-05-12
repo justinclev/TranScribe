@@ -53,16 +53,16 @@ func main() {
 
 	// Step 4 — Generate Terraform HCL into ./out.
 	const outputDir = "out"
-	if err := generator.Generate(bp, outputDir); err != nil {
-		fmt.Fprintf(os.Stderr, "error: generator: %v\n", err)
+	if genErr := generator.Generate(bp, outputDir); genErr != nil {
+		fmt.Fprintf(os.Stderr, "error: generator: %v\n", genErr)
 		os.Exit(1)
 	}
 	fmt.Fprintf(os.Stderr, "Terraform files written to ./%s/\n", outputDir)
 
 	// Step 5 — Pretty-print the hardened Blueprint as JSON for verification.
-	out, err := json.MarshalIndent(bp, "", "  ")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error marshalling blueprint: %v\n", err)
+	out, marshalErr := json.MarshalIndent(bp, "", "  ")
+	if marshalErr != nil {
+		fmt.Fprintf(os.Stderr, "error marshaling blueprint: %v\n", marshalErr)
 		os.Exit(1)
 	}
 	fmt.Println(string(out))

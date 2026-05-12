@@ -629,7 +629,10 @@ func TestFirstPort(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestAdd100(t *testing.T) {
-	cases := []struct{ in int; want string }{{0, "100"}, {5, "105"}, {99, "199"}}
+	cases := []struct {
+		in   int
+		want string
+	}{{0, "100"}, {5, "105"}, {99, "199"}}
 	for _, tc := range cases {
 		if got := add100(tc.in); got != tc.want {
 			t.Errorf("add100(%d) = %s, want %s", tc.in, got, tc.want)
