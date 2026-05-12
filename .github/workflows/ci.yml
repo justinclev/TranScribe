@@ -9,7 +9,7 @@
 #
 # Jobs:
 #   lint     → golangci-lint (static analysis)
-#   test     → go test -race + coverage upload to Codecov
+#   test     → go test -race + coverage report
 #   build    → docker buildx (multi-platform, cache via GH Actions cache)
 #   publish  → push image to GHCR (main branch + tags only)
 #   security → Trivy vulnerability scan on the built image
@@ -94,17 +94,6 @@ jobs:
 
       - name: Show coverage summary
         run: go tool cover -func=coverage.out | tail -1
-
-      - name: Upload coverage to Codecov
-        # Only upload from the canonical Go version to avoid duplicate reports.
-        if: matrix.go == env.GO_VERSION
-        uses: codecov/codecov-action@v4
-        with:
-          files: coverage.out
-          flags: unittests
-          fail_ci_if_error: true
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   # ── Docker build ──────────────────────────────────────────────────────────
   build:
