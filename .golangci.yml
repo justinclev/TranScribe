@@ -6,10 +6,7 @@ run:
   # Test files are linted with a slightly different rule set (see overrides).
   tests: true
 
-output:
-  # Skip generated files and vendored code.
-  exclude-files:
-    - ".*\\.pb\\.go$"
+output: {}
 
 linters:
   # Start from an empty set and explicitly opt-in so upgrades don't silently
@@ -76,6 +73,10 @@ linters-settings:
     scope: declarations
 
 issues:
+  # Skip generated files and vendored code.
+  exclude-files:
+    - ".*\\.pb\\.go$"
+
   # Don't report the same issue more than once.
   max-same-issues: 0
 
