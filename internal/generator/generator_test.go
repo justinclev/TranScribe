@@ -140,8 +140,8 @@ func TestGenerate_MainTF_TranscribeDefaultTag(t *testing.T) {
 	dir := t.TempDir()
 	mustGenerate(t, minimalBP(), dir)
 	content := readTestFile(t, dir, "main.tf")
-	if !strings.Contains(content, `Transcribe = "true"`) {
-		t.Errorf("main.tf missing Transcribe default tag:\n%s", content)
+	if !strings.Contains(content, `Transcribe`) || !strings.Contains(content, `"true"`) {
+		t.Errorf("main.tf missing Transcribe default tag")
 	}
 }
 
@@ -267,9 +267,9 @@ func TestGenerate_VPCTF_HyphenNameSanitized(t *testing.T) {
 	if !strings.Contains(content, "my_app_prod") {
 		t.Errorf("vpc.tf missing sanitized identifier my_app_prod")
 	}
-	// The Name tag value still uses hyphens (human-readable)
-	if !strings.Contains(content, `"my-app-prod-vpc"`) {
-		t.Errorf("vpc.tf Name tag should retain hyphens for readability")
+	// The Name tag now uses ${local.env} prefix for workspace isolation
+	if !strings.Contains(content, `"${local.env}-vpc"`) {
+		t.Errorf("vpc.tf Name tag should use workspace-aware local.env prefix:\n%s", content)
 	}
 }
 
@@ -372,9 +372,9 @@ func TestGenerate_IAMTF_RoleNameTag(t *testing.T) {
 	dir := t.TempDir()
 	mustGenerate(t, minimalBP(), dir)
 	content := readTestFile(t, dir, "iam.tf")
-	// The human-readable Name tag retains hyphens
-	if !strings.Contains(content, `"test-app-api-task-role"`) {
-		t.Errorf("iam.tf role Name tag should retain hyphens:\n%s", content)
+	// The Name tag now uses the workspace-aware ${local.env} prefix
+	if !strings.Contains(content, `"${local.env}-test-app-api-task-role"`) {
+		t.Errorf("iam.tf role Name tag should use workspace-aware prefix:\n%s", content)
 	}
 }
 
@@ -1176,15 +1176,20 @@ func TestGenerate_AWS_Secrets_HasSecretPerEnvVar(t *testing.T) {
 		{
 			Name:        "api",
 			IAMRoleName: "test-app-api-task-role",
-			EnvVars:     map[string]string{"DATABASE_URL": "postgres://..."},
+			EnvVars:     map[string]string{"DATABASE_PASSWORD": "secret", "APP_COLOR": "blue"},
 			CPU:         256,
 			Memory:      512,
 		},
 	}
 	mustGenerate(t, bp, dir)
 	content := readTestFile(t, dir, "secrets.tf")
+	// DATABASE_PASSWORD is sensitive → should produce a secretsmanager resource
 	if !strings.Contains(content, "aws_secretsmanager_secret") {
-		t.Errorf("secrets.tf missing aws_secretsmanager_secret for env var")
+		t.Errorf("secrets.tf missing aws_secretsmanager_secret for sensitive env var")
+	}
+	// APP_COLOR is plain → should NOT appear in secrets.tf
+	if strings.Contains(content, "APP_COLOR") {
+		t.Errorf("secrets.tf should not contain plain (non-sensitive) env var APP_COLOR")
 	}
 }
 

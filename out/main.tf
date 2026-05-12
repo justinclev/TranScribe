@@ -6,6 +6,10 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.6"
+    }
   }
 }
 
@@ -15,6 +19,17 @@ provider "aws" {
   default_tags {
     tags = {
       Transcribe = "true"
+      Environment = terraform.workspace
     }
   }
 }
+
+locals {
+  # Use the Terraform workspace name as the environment prefix so that
+  # multiple environments (default, staging, prod) can share one AWS account
+  # without resource name collisions.
+  env = terraform.workspace == "default" ? "myapp" : "${terraform.workspace}-myapp"
+}
+
+# Current AWS account identity — used for globally-unique bucket names.
+data "aws_caller_identity" "current" {}

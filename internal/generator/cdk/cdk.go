@@ -5,10 +5,13 @@
 //	cdk.json      — CDK toolkit configuration
 //	package.json  — npm dependencies
 //	bin/app.ts    — CDK app entry point
-//	lib/stack.ts  — CDK Stack defining VPC, IAM roles
+//	lib/stack.ts  — CDK Stack defining VPC, IAM roles, ECS Fargate services
 package cdk
 
 import (
+	"strings"
+	"text/template"
+
 	"github.com/justinclev/transcribe/internal/generator/render"
 	"github.com/justinclev/transcribe/pkg/models"
 )
@@ -20,7 +23,22 @@ func Generate(bp *models.Blueprint, outputDir string) error {
 		{"package.json", packageTmpl},
 		{"bin/app.ts", appTmpl},
 		{"lib/stack.ts", stackTmpl},
-	}, bp, nil)
+	}, bp, cdkFuncMap())
+}
+
+func cdkFuncMap() template.FuncMap {
+	return template.FuncMap{
+		"firstPort": func(ports []string) string {
+			if len(ports) == 0 {
+				return "80"
+			}
+			p := ports[0]
+			if idx := strings.Index(p, ":"); idx >= 0 {
+				return p[idx+1:]
+			}
+			return p
+		},
+	}
 }
 
 const configTmpl = `{
@@ -65,6 +83,7 @@ new {{tfid .Name}}Stack(app, "{{.Name}}", {
 
 const stackTmpl = `import * as cdk  from "aws-cdk-lib";
 import * as ec2  from "aws-cdk-lib/aws-ec2";
+import * as ecs  from "aws-cdk-lib/aws-ecs";
 import * as iam  from "aws-cdk-lib/aws-iam";
 import { Construct } from "constructs";
 
@@ -122,6 +141,38 @@ export class {{tfid .Name}}Stack extends cdk.Stack {
 
         cdk.Tags.of(role_{{tfid .IAMRoleName}}).add("Name", "{{.IAMRoleName}}");
         cdk.Tags.of(role_{{tfid .IAMRoleName}}).add("Transcribe", "true");
+{{end}}
+        // ── ECS Cluster ───────────────────────────────────────────────────────
+
+        const cluster = new ecs.Cluster(this, "{{.Name}}-cluster", {
+            vpc,
+            clusterName: "{{.Name}}-cluster",
+        });
+
+        cdk.Tags.of(cluster).add("Transcribe", "true");
+
+        // ── Fargate task definitions & services ───────────────────────────────
+{{range .Services}}
+        const taskDef_{{tfid .Name}} = new ecs.FargateTaskDefinition(this, "{{.Name}}-task", {
+            family:        "{{.Name}}",
+            cpu:           {{.CPU}},
+            memoryLimitMiB: {{.Memory}},
+            taskRole:      role_{{tfid .IAMRoleName}},
+        });
+
+        taskDef_{{tfid .Name}}.addContainer("{{.Name}}", {
+            image:         ecs.ContainerImage.fromRegistry("{{.Image}}"),
+            portMappings:  [{ containerPort: {{firstPort .Ports}} }],
+            logging:       ecs.LogDrivers.awsLogs({ streamPrefix: "{{.Name}}" }),
+        });
+
+        new ecs.FargateService(this, "{{.Name}}-svc", {
+            cluster,
+            taskDefinition: taskDef_{{tfid .Name}},
+            desiredCount:   {{.MinCount}},
+            assignPublicIp: false,
+            vpcSubnets:    { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+        });
 {{end}}
     }
 }

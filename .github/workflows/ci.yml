@@ -92,20 +92,19 @@ jobs:
             -covermode=atomic \
             ./...
 
-      - name: Coverage summary
-        # Write a Markdown coverage table to the GitHub Actions job summary.
-        # Only emit from the canonical Go version to avoid duplicate reports.
+      - name: Show coverage summary
+        run: go tool cover -func=coverage.out | tail -1
+
+      - name: Upload coverage to Codecov
+        # Only upload from the canonical Go version to avoid duplicate reports.
         if: matrix.go == env.GO_VERSION
-        run: |
-          echo "## Coverage report (Go ${{ matrix.go }})" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Package | Coverage |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| ------- | -------- |" >> "$GITHUB_STEP_SUMMARY"
-          go tool cover -func=coverage.out | awk '
-            /^total:/ { total=$3 }
-            !/^total:/ { printf "| %s | %s |\n", $1, $3 }
-            END { printf "\n**Total: %s**\n", total }
-          ' >> "$GITHUB_STEP_SUMMARY"
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.out
+          flags: unittests
+          fail_ci_if_error: true
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   # ── Docker build ──────────────────────────────────────────────────────────
   build:

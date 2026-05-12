@@ -12,7 +12,7 @@ const albTmpl = `{{- if .Network.PublicLoadBalancer}}
 # ── Application Load Balancer ─────────────────────────────────────────────────
 
 resource "aws_lb" "{{tfid .Name}}" {
-  name               = "{{.Name}}-alb"
+  name               = "${local.env}-alb"
   internal           = false
   load_balancer_type = "application"
   security_groups    = [aws_security_group.{{tfid .Name}}_alb.id]
@@ -37,11 +37,11 @@ resource "aws_lb" "{{tfid .Name}}" {
 # ── ALB Access Logs S3 Bucket ─────────────────────────────────────────────────
 
 resource "aws_s3_bucket" "{{tfid .Name}}_alb_logs" {
-  bucket        = "{{.Name}}-alb-access-logs"
+  bucket        = "${local.env}-{{.Name}}-alb-access-logs-${data.aws_caller_identity.current.account_id}"
   force_destroy = false
 
   tags = {
-    Name = "{{.Name}}-alb-access-logs"
+    Name = "${local.env}-{{.Name}}-alb-access-logs"
   }
 }
 
@@ -108,6 +108,10 @@ resource "aws_lb_listener" "{{tfid .Name}}_https" {
       status_code  = "404"
     }
   }
+{{- if .Network.Domain}}
+
+  depends_on = [aws_acm_certificate_validation.{{tfid .Name}}]
+{{- end}}
 }
 
 # ── ACM Certificate ───────────────────────────────────────────────────────────
@@ -121,14 +125,45 @@ resource "aws_acm_certificate" "{{tfid .Name}}" {
   }
 
   tags = {
-    Name = "{{.Name}}-cert"
+    Name = "${local.env}-{{.Name}}-cert"
   }
 }
+{{- if .Network.Domain}}
+
+# ── Route 53 DNS Certificate Validation ──────────────────────────────────────
+
+data "aws_route53_zone" "{{tfid .Name}}" {
+  name         = "{{.Network.Domain}}"
+  private_zone = false
+}
+
+resource "aws_route53_record" "{{tfid .Name}}_cert_validation" {
+  for_each = {
+    for dvo in aws_acm_certificate.{{tfid .Name}}.domain_validation_options : dvo.domain_name => {
+      name   = dvo.resource_record_name
+      record = dvo.resource_record_value
+      type   = dvo.resource_record_type
+    }
+  }
+
+  allow_overwrite = true
+  name            = each.value.name
+  records         = [each.value.record]
+  ttl             = 60
+  type            = each.value.type
+  zone_id         = data.aws_route53_zone.{{tfid .Name}}.zone_id
+}
+
+resource "aws_acm_certificate_validation" "{{tfid .Name}}" {
+  certificate_arn         = aws_acm_certificate.{{tfid .Name}}.arn
+  validation_record_fqdns = [for record in aws_route53_record.{{tfid .Name}}_cert_validation : record.fqdn]
+}
+{{- end}}
 {{range $i, $svc := .Services}}{{if $svc.Ports}}
 # ── Target Group: {{$svc.Name}} ──────────────────────────────────────────────
 
 resource "aws_lb_target_group" "{{tfid $svc.Name}}" {
-  name        = "{{$.Name}}-{{$svc.Name}}-tg"
+  name        = "${local.env}-{{$svc.Name}}-tg"
   port        = {{firstPort $svc.Ports}}
   protocol    = "HTTP"
   vpc_id      = aws_vpc.{{tfid $.Name}}.id
@@ -152,7 +187,7 @@ resource "aws_lb_target_group" "{{tfid $svc.Name}}" {
 
 resource "aws_lb_listener_rule" "{{tfid $svc.Name}}" {
   listener_arn = aws_lb_listener.{{tfid $.Name}}_https.arn
-  priority     = {{add100 $i}}
+  priority     = {{if isFrontend $svc.Name}}999{{else}}{{add100 $i}}{{end}}
 
   action {
     type             = "forward"
@@ -161,7 +196,7 @@ resource "aws_lb_listener_rule" "{{tfid $svc.Name}}" {
 
   condition {
     path_pattern {
-      values = ["/{{$svc.Name}}/*", "/{{$svc.Name}}"]
+      values = {{if isFrontend $svc.Name}}["/*"]{{else}}["/{{$svc.Name}}/*", "/{{$svc.Name}}"]{{end}}
     }
   }
 }

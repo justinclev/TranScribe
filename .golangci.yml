@@ -5,6 +5,9 @@ run:
   timeout: 5m
   # Test files are linted with a slightly different rule set (see overrides).
   tests: true
+  # Skip generated files and vendored code.
+  skip-files:
+    - ".*\\.pb\\.go$"
 
 linters:
   # Start from an empty set and explicitly opt-in so upgrades don't silently
@@ -39,13 +42,7 @@ linters:
 linters-settings:
   errcheck:
     # Allow ignoring errors from fmt.Print* functions (common in CLIs).
-    exclude-functions:
-      - fmt.Print
-      - fmt.Println
-      - fmt.Printf
-      - fmt.Fprint
-      - fmt.Fprintln
-      - fmt.Fprintf
+    ignore: "fmt:.*"
     check-type-assertions: true
 
   govet:
@@ -86,24 +83,3 @@ issues:
     - path: "internal/generator/generator\\.go"
       linters:
         - lll
-
-    # Skip generated protobuf files.
-    - path: "\\.pb\\.go$"
-      linters:
-        - errcheck
-        - govet
-        - staticcheck
-        - unused
-        - ineffassign
-        - bodyclose
-        - nilerr
-        - reassign
-        - gofmt
-        - goimports
-        - misspell
-        - godot
-        - whitespace
-        - unconvert
-        - gosec
-        - cyclop
-        - gocognit

@@ -111,16 +111,24 @@ func (p *v3Parser) parse(data []byte, name string) (*models.Blueprint, error) {
 		Network: models.NetworkConfig{
 			VPCCidr: "10.0.0.0/16",
 		},
+		DBServiceAliases: make(map[string]models.DatabaseEngine),
 	}
 
 	for svcName, svc := range cf.Services {
 		// Detect well-known DB images and promote them to a managed DB.
 		if engine := detectEngine(svc.Image); engine != models.EngineNone {
-			if bp.Database.Engine == models.EngineNone {
-				bp.Database = models.DatabaseConfig{
-					Engine:    engine,
-					IsPrivate: true, // default private for SOC2 CC6.1
-				}
+			db := models.DatabaseConfig{
+				Engine:      engine,
+				IsPrivate:   true, // default private for SOC2 CC6.1
+				ServiceName: svcName,
+			}
+			bp.Databases = append(bp.Databases, db)
+			bp.DBServiceAliases[svcName] = engine
+
+			// Set the primary Database field: prefer relational engines (RDS) over
+			// caches (Redis/Memcached), since most services care most about RDS endpoint.
+			if bp.Database.Engine == models.EngineNone || isRelational(engine) && !isRelational(bp.Database.Engine) {
+				bp.Database = db
 			}
 			// DB containers become managed resources, not Services.
 			continue
@@ -177,6 +185,18 @@ var imageEngineMap = []struct {
 	{"bitnami/cassandra", models.EngineCassandra},
 	// Graph (Neptune) — neo4j is the closest local equivalent
 	{"neo4j", models.EngineNeptune},
+}
+
+// isRelational returns true for RDS-compatible engines (Postgres, MySQL, etc.)
+// These take priority over cache/NoSQL engines when choosing the primary DB.
+func isRelational(e models.DatabaseEngine) bool {
+	switch e {
+	case models.EnginePostgres, models.EngineMySQL, models.EngineMariaDB,
+		models.EngineOracle, models.EngineSQLServer,
+		models.EngineAuroraPostgres, models.EngineAuroraMySQL:
+		return true
+	}
+	return false
 }
 
 // detectEngine strips the image tag and checks it against imageEngineMap.

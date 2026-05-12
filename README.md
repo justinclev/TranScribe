@@ -163,6 +163,10 @@ region: eu-west-1
 # VPC CIDR block (default: 10.0.0.0/16)
 vpc_cidr: 10.1.0.0/16
 
+# Public domain for the ACM certificate and Route 53 validation records.
+# If omitted, the generated Terraform uses a var.domain variable instead.
+domain: example.com
+
 database:
   # Override the engine detected from the compose image name.
   # Useful when your image name is custom (e.g. "my-org/app-db:latest")
@@ -176,15 +180,27 @@ database:
   # RDS / ElastiCache instance size (default: db.t3.medium)
   instance_class: db.r6g.large
 
-# Per-service sizing overrides.
+# Per-service overrides.
 # Services not listed here keep the defaults (cpu: 256, memory: 512,
-# min_count: 1, max_count: 4).
+# min_count: 1, max_count: 4, health_check_path: /health).
 services:
+  frontend:
+    # ALB target group health check path (default: /health).
+    # Override for services that don't expose a /health endpoint.
+    health_check_path: /
+
   api:
-    cpu: 1024 # Fargate CPU units: 256 | 512 | 1024 | 2048 | 4096
+    cpu: 1024    # Fargate CPU units: 256 | 512 | 1024 | 2048 | 4096
     memory: 2048 # Fargate memory in MiB (must be compatible with cpu)
-    min_count: 2 # minimum running task count (desired_count)
+    min_count: 2  # minimum running task count (desired_count)
     max_count: 10 # maximum task count for autoscaling
+    health_check_path: /api/health
+    # Env var names to inject from Secrets Manager into the ECS task definition.
+    # Password-like names (DB_PASSWORD, etc.) are auto-detected; list others here.
+    # The hardener wires DB-password names to the RDS-generated secret automatically.
+    secrets:
+      - DB_PASSWORD
+      - API_KEY
 
   worker:
     cpu: 512

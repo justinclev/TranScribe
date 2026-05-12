@@ -619,3 +619,76 @@ func TestWriteError_MessagePreserved(t *testing.T) {
 		t.Errorf("error message = %q, want %q", e.Error, "my specific error message")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Config sidecar field
+// ---------------------------------------------------------------------------
+
+const minimalTranscribeYML = `
+provider: aws
+region: eu-west-1
+`
+
+const invalidTranscribeYML = `
+provider: [not valid yaml for this field
+`
+
+// multipartRequestWithConfig builds a POST with both a "file" and a "config" field.
+func multipartRequestWithConfig(t *testing.T, composeContent, configContent string) *http.Request {
+	t.Helper()
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+
+	fw, err := mw.CreateFormFile("file", "docker-compose.yml")
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	if _, err := io.WriteString(fw, composeContent); err != nil {
+		t.Fatalf("write compose: %v", err)
+	}
+
+	cw, err := mw.CreateFormFile("config", "transcribe.yml")
+	if err != nil {
+		t.Fatalf("create config file: %v", err)
+	}
+	if _, err := io.WriteString(cw, configContent); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	mw.Close()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/transcribe", &buf)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	return req
+}
+
+func TestHandleTranscribe_WithValidConfig_Returns200(t *testing.T) {
+	req := multipartRequestWithConfig(t, minimalCompose, minimalTranscribeYML)
+	rec := httptest.NewRecorder()
+	handleTranscribe(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	openZip(t, rec)
+}
+
+func TestHandleTranscribe_WithValidConfig_AppliesRegion(t *testing.T) {
+	req := multipartRequestWithConfig(t, minimalCompose, minimalTranscribeYML)
+	rec := httptest.NewRecorder()
+	handleTranscribe(rec, req)
+	zr := openZip(t, rec)
+	content := readZipEntry(t, zr, "main.tf")
+	if !strings.Contains(content, "eu-west-1") {
+		t.Errorf("main.tf should reflect region from sidecar config:\n%s", content)
+	}
+}
+
+func TestHandleTranscribe_WithInvalidConfig_Returns400(t *testing.T) {
+	req := multipartRequestWithConfig(t, minimalCompose, invalidTranscribeYML)
+	rec := httptest.NewRecorder()
+	handleTranscribe(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 for invalid transcribe.yml", rec.Code)
+	}
+	assertJSONError(t, rec.Body.Bytes())
+}
+

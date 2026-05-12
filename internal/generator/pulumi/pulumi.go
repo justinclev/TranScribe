@@ -9,6 +9,8 @@ package pulumi
 
 import (
 	"fmt"
+	"strings"
+	"text/template"
 
 	"github.com/justinclev/transcribe/internal/generator/render"
 	"github.com/justinclev/transcribe/pkg/models"
@@ -33,7 +35,22 @@ func generateAWS(bp *models.Blueprint, outputDir string) error {
 		{"Pulumi.yaml", projectTmpl},
 		{"index.ts", awsIndexTmpl},
 		{"package.json", awsPackageTmpl},
-	}, bp, nil)
+	}, bp, awsFuncMap())
+}
+
+func awsFuncMap() template.FuncMap {
+	return template.FuncMap{
+		"firstPort": func(ports []string) string {
+			if len(ports) == 0 {
+				return "80"
+			}
+			p := ports[0]
+			if idx := strings.Index(p, ":"); idx >= 0 {
+				return p[idx+1:]
+			}
+			return p
+		},
+	}
 }
 
 func generateAzure(bp *models.Blueprint, outputDir string) error {
@@ -162,7 +179,64 @@ new aws.iam.RolePolicy("{{.IAMRoleName}}-policy", {
     }),
 });
 {{end}}
+// ── ECS ───────────────────────────────────────────────────────────────────────
+
+const cluster = new aws.ecs.Cluster("{{.Name}}-cluster", {
+    tags: { Name: "{{.Name}}-cluster", Transcribe: "true" },
+});
+
+const execRole = new aws.iam.Role("{{.Name}}-exec-role", {
+    assumeRolePolicy: JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [{ Effect: "Allow", Principal: { Service: "ecs-tasks.amazonaws.com" }, Action: "sts:AssumeRole" }],
+    }),
+    tags: { Name: "{{.Name}}-exec-role", Transcribe: "true" },
+});
+
+new aws.iam.RolePolicyAttachment("{{.Name}}-exec-role-policy", {
+    role:      execRole.name,
+    policyArn: "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy",
+});
+{{range .Services}}
+const taskDef_{{tfid .Name}} = new aws.ecs.TaskDefinition("{{.Name}}-task", {
+    family:                  "{{.Name}}",
+    networkMode:             "awsvpc",
+    requiresCompatibilities: ["FARGATE"],
+    cpu:                     "{{.CPU}}",
+    memory:                  "{{.Memory}}",
+    executionRoleArn:        execRole.arn,
+    taskRoleArn:             role_{{tfid .IAMRoleName}}.arn,
+    containerDefinitions: JSON.stringify([{
+        name:  "{{.Name}}",
+        image: "{{.Image}}",
+        portMappings: [{ containerPort: {{firstPort .Ports}}, protocol: "tcp" }],
+        essential: true,
+        logConfiguration: {
+            logDriver: "awslogs",
+            options: {
+                "awslogs-group":         "/ecs/{{$.Name}}/{{.Name}}",
+                "awslogs-region":        "{{$.Region}}",
+                "awslogs-stream-prefix": "ecs",
+            },
+        },
+    }]),
+    tags: { Name: "{{.Name}}-task", Transcribe: "true" },
+});
+
+const service_{{tfid .Name}} = new aws.ecs.Service("{{.Name}}-svc", {
+    cluster:        cluster.id,
+    taskDefinition: taskDef_{{tfid .Name}}.arn,
+    desiredCount:   {{.MinCount}},
+    launchType:     "FARGATE",
+    networkConfiguration: {
+        subnets:        [privateSubnet1.id, privateSubnet2.id],
+        assignPublicIp: false,
+    },
+    tags: { Name: "{{.Name}}-svc", Transcribe: "true" },
+});
+{{end}}
 export const vpcId = vpc.id;
+export const clusterId = cluster.id;
 `
 
 const awsPackageTmpl = `{

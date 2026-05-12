@@ -48,11 +48,16 @@ type TranscribeConfig struct {
 
 // ServiceConfig holds the per-service overrides from transcribe.yml.
 type ServiceConfig struct {
-	CPU             int    `yaml:"cpu"`               // Fargate CPU units (256, 512, 1024, 2048, 4096)
-	Memory          int    `yaml:"memory"`            // Fargate memory in MiB
-	MinCount        int    `yaml:"min_count"`         // minimum desired running task count
-	MaxCount        int    `yaml:"max_count"`         // maximum desired task count (autoscaling ceiling)
-	HealthCheckPath string `yaml:"health_check_path"` // ALB target group health check path (default: /health)
+	CPU             int      `yaml:"cpu"`               // Fargate CPU units (256, 512, 1024, 2048, 4096)
+	Memory          int      `yaml:"memory"`            // Fargate memory in MiB
+	MinCount        int      `yaml:"min_count"`         // minimum desired running task count
+	MaxCount        int      `yaml:"max_count"`         // maximum desired task count (autoscaling ceiling)
+	HealthCheckPath string   `yaml:"health_check_path"` // ALB target group health check path (default: /health)
+	// Secrets lists env var names that must be injected from Secrets Manager.
+	// For password-like names, the hardener wires them to the DB-generated
+	// SM secret so the container receives the actual RDS password, not a
+	// separately generated random value.
+	Secrets []string `yaml:"secrets"`
 }
 
 // ---------------------------------------------------------------------------
@@ -129,6 +134,9 @@ func applyConfig(cfg *TranscribeConfig, bp *models.Blueprint) {
 		}
 		if override.HealthCheckPath != "" {
 			svc.HealthCheckPath = override.HealthCheckPath
+		}
+		if len(override.Secrets) > 0 {
+			svc.MappedSecrets = append(svc.MappedSecrets, override.Secrets...)
 		}
 	}
 }

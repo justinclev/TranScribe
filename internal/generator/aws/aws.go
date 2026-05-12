@@ -2,7 +2,7 @@
 //
 // Output files:
 //
-//	main.tf              — AWS provider + Terraform block
+//	main.tf              — AWS provider + Terraform block + workspace local
 //	vpc.tf               — VPC, subnets, IGW, NAT GW, route tables
 //	security_groups.tf   — ALB, ECS, and DB security groups
 //	kms.tf               — Customer-managed KMS key (encryption at rest)
@@ -12,8 +12,12 @@
 //	iam.tf               — ECS task IAM role + inline policy per service
 //	ecs.tf               — ECS cluster, task execution role, task definitions, services
 //	alb.tf               — ALB, HTTPS listener, ACM cert, target groups (when PublicLoadBalancer)
+//	waf.tf               — WAF v2 OWASP web ACL on ALB (SEC-01)
 //	rds.tf               — Managed database (engine-specific resource)
 //	secrets.tf           — Secrets Manager secrets for service env vars
+//	cloudtrail.tf        — CloudTrail multi-region trail (LOG-01)
+//	endpoints.tf         — VPC Interface Endpoints for ECR/SM/CW (NET-03)
+//	outputs.tf           — Output variables (ALB DNS, ECR URLs, RDS endpoint)
 //	backend.tf           — S3 + DynamoDB Terraform remote state
 package aws
 
@@ -28,6 +32,16 @@ import (
 
 // Generate writes all AWS Terraform files into outputDir.
 func Generate(bp *models.Blueprint, outputDir string) error {
+	// Backward compat: if only the singular Database field is set (e.g. from
+	// older test helpers or direct Blueprint construction), promote it into the
+	// Databases slice so all templates that range over .Databases work correctly.
+	if bp.Database.Engine != models.EngineNone && len(bp.Databases) == 0 {
+		if bp.Database.ServiceName == "" {
+			bp.Database.ServiceName = "db"
+		}
+		bp.Databases = []models.DatabaseConfig{bp.Database}
+	}
+
 	return render.WriteFiles(outputDir, []struct{ Name, Tmpl string }{
 		{"main.tf", mainTmpl},
 		{"vpc.tf", vpcTmpl},
@@ -39,8 +53,12 @@ func Generate(bp *models.Blueprint, outputDir string) error {
 		{"iam.tf", iamTmpl},
 		{"ecs.tf", ecsTmpl},
 		{"alb.tf", albTmpl},
+		{"waf.tf", wafTmpl},
 		{"rds.tf", rdsTmpl},
 		{"secrets.tf", secretsTmpl},
+		{"cloudtrail.tf", cloudtrailTmpl},
+		{"endpoints.tf", endpointsTmpl},
+		{"outputs.tf", outputsTmpl},
 		{"backend.tf", backendTmpl},
 	}, bp, funcMap())
 }
@@ -66,6 +84,9 @@ func funcMap() template.FuncMap {
 		"firstPort":           firstPort,
 		"add100":              add100,
 		"list":                list,
+		"isSensitive":         isSensitiveVar,
+		"isFrontend":          isFrontend,
+		"isOverridden":        isOverridden,
 	}
 }
 
@@ -197,16 +218,60 @@ func add100(i int) string { return strconv.Itoa(i + 100) }
 // a one-element slice to firstPort.
 func list(s string) []string { return []string{s} }
 
+// isSensitiveVar returns true when a variable name looks like it carries a
+// credential. Sensitive vars are sent to Secrets Manager; others become plain
+// ECS environment variables.
+func isSensitiveVar(name string) bool {
+	upper := strings.ToUpper(name)
+	for _, kw := range []string{"PASSWORD", "PASSWD", "SECRET", "TOKEN", "KEY", "APIKEY", "API_KEY", "CREDENTIALS", "CERT", "PRIVATE"} {
+		if strings.Contains(upper, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+// isFrontend returns true when the service name suggests a static web frontend
+// that should serve all routes (catch-all "/*" path pattern instead of
+// "/serviceName/*"). Frontend-like services are assigned the highest ALB
+// listener rule priority (999) so API routes are evaluated first.
+func isFrontend(name string) bool {
+	lower := strings.ToLower(name)
+	for _, kw := range []string{"front", "ui", "web", "www", "app", "static", "client"} {
+		if strings.Contains(lower, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+// isOverridden returns true when the given env-var key has an entry in the
+// SecretARNOverrides map, meaning its Secrets Manager secret is already
+// managed elsewhere (e.g. by the RDS module) and should not be re-created.
+func isOverridden(key string, overrides map[string]string) bool {
+	if overrides == nil {
+		return false
+	}
+	_, ok := overrides[key]
+	return ok
+}
+
 // ---------------------------------------------------------------------------
 // main.tf template
 // ---------------------------------------------------------------------------
 
 // mainTmpl renders main.tf: the AWS provider pinned to bp.Region.
+// local.env is set to terraform.workspace so all resource names
+// automatically incorporate the active workspace (dev/staging/prod).
 const mainTmpl = `terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
       version = "~> 5.0"
+    }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.6"
     }
   }
 }
@@ -217,9 +282,20 @@ provider "aws" {
   default_tags {
     tags = {
       Transcribe = "true"
+      Environment = terraform.workspace
     }
   }
 }
+
+locals {
+  # Use the Terraform workspace name as the environment prefix so that
+  # multiple environments (default, staging, prod) can share one AWS account
+  # without resource name collisions.
+  env = terraform.workspace == "default" ? "{{.Name}}" : "${terraform.workspace}-{{.Name}}"
+}
+
+# Current AWS account identity — used for globally-unique bucket names.
+data "aws_caller_identity" "current" {}
 `
 
 // ---------------------------------------------------------------------------
@@ -242,7 +318,7 @@ resource "aws_vpc" "{{tfid .Name}}" {
   enable_dns_support   = true
 
   tags = {
-    Name = "{{.Name}}-vpc"
+    Name = "${local.env}-vpc"
   }
 }
 
@@ -252,7 +328,7 @@ resource "aws_internet_gateway" "{{tfid .Name}}" {
   vpc_id = aws_vpc.{{tfid .Name}}.id
 
   tags = {
-    Name = "{{.Name}}-igw"
+    Name = "${local.env}-igw"
   }
 }
 
@@ -265,7 +341,7 @@ resource "aws_subnet" "{{tfid .Name}}_public_1" {
   map_public_ip_on_launch = true
 
   tags = {
-    Name = "{{.Name}}-public-1"
+    Name = "${local.env}-public-1"
   }
 }
 
@@ -276,7 +352,7 @@ resource "aws_subnet" "{{tfid .Name}}_public_2" {
   map_public_ip_on_launch = true
 
   tags = {
-    Name = "{{.Name}}-public-2"
+    Name = "${local.env}-public-2"
   }
 }
 
@@ -288,7 +364,7 @@ resource "aws_subnet" "{{tfid .Name}}_private_1" {
   availability_zone = data.aws_availability_zones.available.names[0]
 
   tags = {
-    Name = "{{.Name}}-private-1"
+    Name = "${local.env}-private-1"
   }
 }
 
@@ -298,7 +374,7 @@ resource "aws_subnet" "{{tfid .Name}}_private_2" {
   availability_zone = data.aws_availability_zones.available.names[1]
 
   tags = {
-    Name = "{{.Name}}-private-2"
+    Name = "${local.env}-private-2"
   }
 }
 
@@ -308,7 +384,7 @@ resource "aws_eip" "{{tfid .Name}}_nat" {
   domain = "vpc"
 
   tags = {
-    Name = "{{.Name}}-nat-eip"
+    Name = "${local.env}-nat-eip"
   }
 }
 
@@ -318,7 +394,7 @@ resource "aws_nat_gateway" "{{tfid .Name}}" {
   depends_on    = [aws_internet_gateway.{{tfid .Name}}]
 
   tags = {
-    Name = "{{.Name}}-nat"
+    Name = "${local.env}-nat"
   }
 }
 
@@ -333,7 +409,7 @@ resource "aws_route_table" "{{tfid .Name}}_public" {
   }
 
   tags = {
-    Name = "{{.Name}}-public-rt"
+    Name = "${local.env}-public-rt"
   }
 }
 
@@ -356,7 +432,7 @@ resource "aws_route_table" "{{tfid .Name}}_private" {
   }
 
   tags = {
-    Name = "{{.Name}}-private-rt"
+    Name = "${local.env}-private-rt"
   }
 }
 
@@ -380,7 +456,7 @@ const iamTmpl = `{{- range .Services}}
 # ── {{.Name}} ─────────────────────────────────────────────────────────────────
 
 resource "aws_iam_role" "{{tfid .IAMRoleName}}" {
-  name = "{{.IAMRoleName}}"
+  name = "${local.env}-{{.IAMRoleName}}"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -394,12 +470,12 @@ resource "aws_iam_role" "{{tfid .IAMRoleName}}" {
   })
 
   tags = {
-    Name = "{{.IAMRoleName}}"
+    Name = "${local.env}-{{.IAMRoleName}}"
   }
 }
 
 resource "aws_iam_role_policy" "{{tfid .IAMRoleName}}" {
-  name = "{{.IAMRoleName}}-policy"
+  name = "${local.env}-{{.IAMRoleName}}-policy"
   role = aws_iam_role.{{tfid .IAMRoleName}}.id
 
   policy = jsonencode({

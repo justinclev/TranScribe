@@ -10,136 +10,136 @@ data "aws_availability_zones" "available" {
 
 # ── VPC ──────────────────────────────────────────────────────────────────────
 
-resource "aws_vpc" "tmp" {
+resource "aws_vpc" "myapp" {
   cidr_block           = local.vpc_cidr
   enable_dns_hostnames = true
   enable_dns_support   = true
 
   tags = {
-    Name = "tmp-vpc"
+    Name = "${local.env}-vpc"
   }
 }
 
 # ── Internet Gateway ──────────────────────────────────────────────────────────
 
-resource "aws_internet_gateway" "tmp" {
-  vpc_id = aws_vpc.tmp.id
+resource "aws_internet_gateway" "myapp" {
+  vpc_id = aws_vpc.myapp.id
 
   tags = {
-    Name = "tmp-igw"
+    Name = "${local.env}-igw"
   }
 }
 
 # ── Public Subnets ────────────────────────────────────────────────────────────
 
-resource "aws_subnet" "tmp_public_1" {
-  vpc_id                  = aws_vpc.tmp.id
+resource "aws_subnet" "myapp_public_1" {
+  vpc_id                  = aws_vpc.myapp.id
   cidr_block              = cidrsubnet(local.vpc_cidr, 8, 0)
   availability_zone       = data.aws_availability_zones.available.names[0]
   map_public_ip_on_launch = true
 
   tags = {
-    Name = "tmp-public-1"
+    Name = "${local.env}-public-1"
   }
 }
 
-resource "aws_subnet" "tmp_public_2" {
-  vpc_id                  = aws_vpc.tmp.id
+resource "aws_subnet" "myapp_public_2" {
+  vpc_id                  = aws_vpc.myapp.id
   cidr_block              = cidrsubnet(local.vpc_cidr, 8, 1)
   availability_zone       = data.aws_availability_zones.available.names[1]
   map_public_ip_on_launch = true
 
   tags = {
-    Name = "tmp-public-2"
+    Name = "${local.env}-public-2"
   }
 }
 
 # ── Private Subnets ───────────────────────────────────────────────────────────
 
-resource "aws_subnet" "tmp_private_1" {
-  vpc_id            = aws_vpc.tmp.id
+resource "aws_subnet" "myapp_private_1" {
+  vpc_id            = aws_vpc.myapp.id
   cidr_block        = cidrsubnet(local.vpc_cidr, 8, 10)
   availability_zone = data.aws_availability_zones.available.names[0]
 
   tags = {
-    Name = "tmp-private-1"
+    Name = "${local.env}-private-1"
   }
 }
 
-resource "aws_subnet" "tmp_private_2" {
-  vpc_id            = aws_vpc.tmp.id
+resource "aws_subnet" "myapp_private_2" {
+  vpc_id            = aws_vpc.myapp.id
   cidr_block        = cidrsubnet(local.vpc_cidr, 8, 11)
   availability_zone = data.aws_availability_zones.available.names[1]
 
   tags = {
-    Name = "tmp-private-2"
+    Name = "${local.env}-private-2"
   }
 }
 
 # ── NAT Gateway (private-subnet egress) ──────────────────────────────────────
 
-resource "aws_eip" "tmp_nat" {
+resource "aws_eip" "myapp_nat" {
   domain = "vpc"
 
   tags = {
-    Name = "tmp-nat-eip"
+    Name = "${local.env}-nat-eip"
   }
 }
 
-resource "aws_nat_gateway" "tmp" {
-  allocation_id = aws_eip.tmp_nat.id
-  subnet_id     = aws_subnet.tmp_public_1.id
-  depends_on    = [aws_internet_gateway.tmp]
+resource "aws_nat_gateway" "myapp" {
+  allocation_id = aws_eip.myapp_nat.id
+  subnet_id     = aws_subnet.myapp_public_1.id
+  depends_on    = [aws_internet_gateway.myapp]
 
   tags = {
-    Name = "tmp-nat"
+    Name = "${local.env}-nat"
   }
 }
 
 # ── Route Tables ──────────────────────────────────────────────────────────────
 
-resource "aws_route_table" "tmp_public" {
-  vpc_id = aws_vpc.tmp.id
+resource "aws_route_table" "myapp_public" {
+  vpc_id = aws_vpc.myapp.id
 
   route {
     cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.tmp.id
+    gateway_id = aws_internet_gateway.myapp.id
   }
 
   tags = {
-    Name = "tmp-public-rt"
+    Name = "${local.env}-public-rt"
   }
 }
 
-resource "aws_route_table_association" "tmp_public_1" {
-  subnet_id      = aws_subnet.tmp_public_1.id
-  route_table_id = aws_route_table.tmp_public.id
+resource "aws_route_table_association" "myapp_public_1" {
+  subnet_id      = aws_subnet.myapp_public_1.id
+  route_table_id = aws_route_table.myapp_public.id
 }
 
-resource "aws_route_table_association" "tmp_public_2" {
-  subnet_id      = aws_subnet.tmp_public_2.id
-  route_table_id = aws_route_table.tmp_public.id
+resource "aws_route_table_association" "myapp_public_2" {
+  subnet_id      = aws_subnet.myapp_public_2.id
+  route_table_id = aws_route_table.myapp_public.id
 }
 
-resource "aws_route_table" "tmp_private" {
-  vpc_id = aws_vpc.tmp.id
+resource "aws_route_table" "myapp_private" {
+  vpc_id = aws_vpc.myapp.id
 
   route {
     cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.tmp.id
+    nat_gateway_id = aws_nat_gateway.myapp.id
   }
 
   tags = {
-    Name = "tmp-private-rt"
+    Name = "${local.env}-private-rt"
   }
 }
 
-resource "aws_route_table_association" "tmp_private_1" {
-  subnet_id      = aws_subnet.tmp_private_1.id
-  route_table_id = aws_route_table.tmp_private.id
+resource "aws_route_table_association" "myapp_private_1" {
+  subnet_id      = aws_subnet.myapp_private_1.id
+  route_table_id = aws_route_table.myapp_private.id
 }
 
-resource "aws_route_table_association" "tmp_private_2" {
-  subnet_id      = aws_subnet.tmp_private_2.id
-  route_table_id = aws_route_table.tmp_private.id
+resource "aws_route_table_association" "myapp_private_2" {
+  subnet_id      = aws_subnet.myapp_private_2.id
+  route_table_id = aws_route_table.myapp_private.id
 }

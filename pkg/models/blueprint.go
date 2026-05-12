@@ -44,6 +44,17 @@ type Service struct {
 	MaxCount        int    `json:"max_count"       yaml:"max_count"`           // maximum desired task count (for autoscaling)
 	HealthCheckPath string `json:"health_check_path" yaml:"health_check_path"` // ALB target group health check path (default: /health)
 
+	// MappedSecrets is a list of env var names that must be injected into the
+	// ECS task from Secrets Manager (in addition to names auto-detected by the
+	// isSensitive heuristic). Set via the `secrets` key in transcribe.yml.
+	MappedSecrets []string `json:"mapped_secrets" yaml:"mapped_secrets"`
+
+	// SecretARNOverrides maps env var names to explicit Terraform ARN expressions
+	// for the Secrets Manager secret that should back them. Populated by the
+	// hardener when a MappedSecret can be linked to a DB-generated password secret.
+	// Template: "aws_secretsmanager_secret.NAME_db_password.arn"
+	SecretARNOverrides map[string]string `json:"secret_arn_overrides" yaml:"secret_arn_overrides"`
+
 	// Set by the hardener.
 	IAMRoleName        string              `json:"iam_role_name"       yaml:"iam_role_name"`
 	ComplianceControls []ComplianceControl `json:"compliance_controls" yaml:"compliance_controls"`
@@ -102,6 +113,7 @@ type DatabaseConfig struct {
 	Engine        DatabaseEngine `json:"engine"         yaml:"engine"`         // see DatabaseEngine constants
 	IsPrivate     bool           `json:"is_private"     yaml:"is_private"`     // true = no public endpoint
 	InstanceClass string         `json:"instance_class" yaml:"instance_class"` // e.g. "db.t3.medium"; overrides template default
+	ServiceName   string         `json:"service_name"   yaml:"service_name"`  // original compose service name (e.g. "db", "redis")
 }
 
 // Blueprint is the central intermediary data model. A docker-compose file is
@@ -114,7 +126,13 @@ type Blueprint struct {
 	Region       string         `json:"region"        yaml:"region"`        // e.g. "us-east-1", "eastus", "us-central1"
 	Services     []Service      `json:"services" yaml:"services"`
 	Network      NetworkConfig  `json:"network"  yaml:"network"`
-	Database     DatabaseConfig `json:"database" yaml:"database"`
+	Database     DatabaseConfig `json:"database" yaml:"database"` // primary DB (first detected); kept for backward compat
+	Databases    []DatabaseConfig `json:"databases" yaml:"databases"` // all detected managed databases
+
+	// DBServiceAliases maps original compose service names (e.g. "db", "redis")
+	// to the AWS engine they were promoted to. Used by the hardener to rewrite
+	// container-name env var values to Terraform resource references.
+	DBServiceAliases map[string]DatabaseEngine `json:"db_service_aliases" yaml:"db_service_aliases"`
 
 	// Set by the hardener.
 	IsHardened         bool                `json:"is_hardened"         yaml:"is_hardened"`

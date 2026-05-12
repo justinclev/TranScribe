@@ -7,7 +7,7 @@ package aws
 const ecsTmpl = `# ── ECS Cluster ──────────────────────────────────────────────────────────────
 
 resource "aws_ecs_cluster" "{{tfid .Name}}" {
-  name = "{{.Name}}"
+  name = "${local.env}-cluster"
 
   setting {
     name  = "containerInsights"
@@ -15,7 +15,7 @@ resource "aws_ecs_cluster" "{{tfid .Name}}" {
   }
 
   tags = {
-    Name = "{{.Name}}-cluster"
+    Name = "${local.env}-cluster"
   }
 }
 
@@ -35,7 +35,7 @@ resource "aws_ecs_cluster_capacity_providers" "{{tfid .Name}}" {
 # to pull images from ECR and push logs to CloudWatch.
 
 resource "aws_iam_role" "{{tfid .Name}}_execution" {
-  name = "{{.Name}}-ecs-execution-role"
+  name = "${local.env}-ecs-execution-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -47,7 +47,7 @@ resource "aws_iam_role" "{{tfid .Name}}_execution" {
   })
 
   tags = {
-    Name = "{{.Name}}-ecs-execution-role"
+    Name = "${local.env}-ecs-execution-role"
   }
 }
 
@@ -58,7 +58,7 @@ resource "aws_iam_role_policy_attachment" "{{tfid .Name}}_execution" {
 
 # Allow the execution role to read secrets from Secrets Manager
 resource "aws_iam_role_policy" "{{tfid .Name}}_execution_secrets" {
-  name = "{{.Name}}-execution-secrets"
+  name = "${local.env}-execution-secrets"
   role = aws_iam_role.{{tfid .Name}}_execution.id
 
   policy = jsonencode({
@@ -78,7 +78,7 @@ resource "aws_iam_role_policy" "{{tfid .Name}}_execution_secrets" {
 # ── ECS Task Definition: {{.Name}} ────────────────────────────────────────────
 
 resource "aws_ecs_task_definition" "{{tfid .Name}}" {
-  family                   = "{{$.Name}}-{{.Name}}"
+  family                   = "${local.env}-{{$.Name}}-{{.Name}}"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
   cpu                      = {{.CPU}}
@@ -107,23 +107,31 @@ resource "aws_ecs_task_definition" "{{tfid .Name}}" {
         "awslogs-stream-prefix" = "ecs"
       }
     }
-{{- if .EnvVars}}
-    secrets = [{{range $k, $v := .EnvVars}}
+{{- if or .EnvVars .SecretARNOverrides}}
+{{- $name := .Name}}{{- $bp := $}}
+    environment = [{{range $k, $v := .EnvVars}}{{if not (isSensitive $k)}}
+      { name = "{{$k}}", value = "{{$v}}" },{{end}}{{end}}
+    ]
+    secrets = [{{range $k, $v := .EnvVars}}{{if isSensitive $k}}
       {
         name      = "{{$k}}"
         valueFrom = aws_secretsmanager_secret.{{tfid $.Name}}_{{tfid $k}}.arn
+      },{{end}}{{end}}{{range $k, $arn := .SecretARNOverrides}}
+      {
+        name      = "{{$k}}"
+        valueFrom = {{$arn}}
       },{{end}}
     ]
 {{- end}}
   }])
 
   tags = {
-    Name = "{{$.Name}}-{{.Name}}"
+    Name = "${local.env}-{{$.Name}}-{{.Name}}-task"
   }
 }
 
 resource "aws_ecs_service" "{{tfid .Name}}" {
-  name            = "{{$.Name}}-{{.Name}}"
+  name            = "${local.env}-{{$.Name}}-{{.Name}}"
   cluster         = aws_ecs_cluster.{{tfid $.Name}}.id
   task_definition = aws_ecs_task_definition.{{tfid .Name}}.arn
   desired_count   = {{.MinCount}}
@@ -157,7 +165,7 @@ resource "aws_ecs_service" "{{tfid .Name}}" {
   enable_execute_command = false
 
   tags = {
-    Name = "{{$.Name}}-{{.Name}}"
+    Name = "${local.env}-{{$.Name}}-{{.Name}}-svc"
   }
 
   depends_on = [aws_iam_role_policy_attachment.{{tfid $.Name}}_execution]
@@ -174,7 +182,7 @@ resource "aws_appautoscaling_target" "{{tfid .Name}}" {
 }
 
 resource "aws_appautoscaling_policy" "{{tfid .Name}}_cpu" {
-  name               = "{{$.Name}}-{{.Name}}-cpu-scaling"
+  name               = "${local.env}-{{$.Name}}-{{.Name}}-cpu-scaling"
   policy_type        = "TargetTrackingScaling"
   resource_id        = aws_appautoscaling_target.{{tfid .Name}}.resource_id
   scalable_dimension = aws_appautoscaling_target.{{tfid .Name}}.scalable_dimension
@@ -191,7 +199,7 @@ resource "aws_appautoscaling_policy" "{{tfid .Name}}_cpu" {
 }
 
 resource "aws_appautoscaling_policy" "{{tfid .Name}}_memory" {
-  name               = "{{$.Name}}-{{.Name}}-memory-scaling"
+  name               = "${local.env}-{{$.Name}}-{{.Name}}-memory-scaling"
   policy_type        = "TargetTrackingScaling"
   resource_id        = aws_appautoscaling_target.{{tfid .Name}}.resource_id
   scalable_dimension = aws_appautoscaling_target.{{tfid .Name}}.scalable_dimension

@@ -5,7 +5,7 @@ const ecrTmpl = `{{- range .Services}}
 # ── ECR Repository: {{.Name}} ─────────────────────────────────────────────────
 
 resource "aws_ecr_repository" "{{tfid .Name}}" {
-  name                 = "{{$.Name}}/{{.Name}}"
+  name                 = "${local.env}-{{$.Name}}-{{.Name}}"
   image_tag_mutability = "IMMUTABLE"
 
   image_scanning_configuration {
@@ -45,24 +45,24 @@ const logsTmpl = `{{- range .Services}}
 # ── CloudWatch Log Group: {{.Name}} ───────────────────────────────────────────
 
 resource "aws_cloudwatch_log_group" "{{tfid .Name}}" {
-  name              = "/ecs/{{$.Name}}/{{.Name}}"
+  name              = "/ecs/${local.env}-{{$.Name}}/{{.Name}}"
   retention_in_days = 90
   kms_key_id        = aws_kms_key.{{tfid $.Name}}.arn
 
   tags = {
-    Name = "{{$.Name}}-{{.Name}}-logs"
+    Name = "${local.env}-{{$.Name}}-{{.Name}}-logs"
   }
 }
 {{end}}
 # ── VPC Flow Logs Log Group ───────────────────────────────────────────────────
 
 resource "aws_cloudwatch_log_group" "{{tfid .Name}}_flow_logs" {
-  name              = "/vpc/{{.Name}}/flow-logs"
+  name              = "/vpc/${local.env}-{{.Name}}/flow-logs"
   retention_in_days = 90
   kms_key_id        = aws_kms_key.{{tfid .Name}}.arn
 
   tags = {
-    Name = "{{.Name}}-vpc-flow-logs"
+    Name = "${local.env}-{{.Name}}-vpc-flow-logs"
   }
 }
 `
@@ -71,18 +71,18 @@ const kmsTmpl = `# ── Customer-Managed KMS Key ─────────�
 # Used for: ECS secrets, ECR images, CloudWatch logs, RDS, S3 ALB access logs.
 
 resource "aws_kms_key" "{{tfid .Name}}" {
-  description             = "{{.Name}} — SOC2 encryption at rest"
+  description             = "${local.env}-{{.Name}} — SOC2 encryption at rest"
   deletion_window_in_days = 30
   enable_key_rotation     = true
   multi_region            = false
 
   tags = {
-    Name = "{{.Name}}-kms"
+    Name = "${local.env}-{{.Name}}-kms"
   }
 }
 
 resource "aws_kms_alias" "{{tfid .Name}}" {
-  name          = "alias/{{.Name}}"
+  name          = "alias/${local.env}-{{.Name}}"
   target_key_id = aws_kms_key.{{tfid .Name}}.key_id
 }
 `
@@ -90,7 +90,7 @@ resource "aws_kms_alias" "{{tfid .Name}}" {
 const flowLogsTmpl = `# ── VPC Flow Logs (SOC2 CC6.6 / CC7.2) ──────────────────────────────────────
 
 resource "aws_iam_role" "{{tfid .Name}}_flow_logs" {
-  name = "{{.Name}}-vpc-flow-logs-role"
+  name = "${local.env}-{{.Name}}-vpc-flow-logs-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -102,12 +102,12 @@ resource "aws_iam_role" "{{tfid .Name}}_flow_logs" {
   })
 
   tags = {
-    Name = "{{.Name}}-vpc-flow-logs-role"
+    Name = "${local.env}-{{.Name}}-vpc-flow-logs-role"
   }
 }
 
 resource "aws_iam_role_policy" "{{tfid .Name}}_flow_logs" {
-  name = "{{.Name}}-vpc-flow-logs-policy"
+  name = "${local.env}-{{.Name}}-vpc-flow-logs-policy"
   role = aws_iam_role.{{tfid .Name}}_flow_logs.id
 
   policy = jsonencode({
@@ -141,27 +141,33 @@ resource "aws_flow_log" "{{tfid .Name}}" {
 //nolint:gosec // this is a terraform template placeholder, not an actual credential
 const secretsTmpl = `{{- range .Services}}{{if .EnvVars}}
 # ── Secrets Manager: {{.Name}} ────────────────────────────────────────────────
-{{$svcName := .Name}}{{range $k, $v := .EnvVars}}
+{{$svcName := .Name}}{{$overrides := .SecretARNOverrides}}{{range $k, $v := .EnvVars}}{{if isSensitive $k}}{{if not (isOverridden $k $overrides)}}
 resource "aws_secretsmanager_secret" "{{tfid $.Name}}_{{tfid $k}}" {
-  name                    = "{{$.Name}}/{{$svcName}}/{{$k}}"
+  name                    = "${local.env}-{{$.Name}}/{{$svcName}}/{{$k}}"
   kms_key_id              = aws_kms_key.{{tfid $.Name}}.arn
   recovery_window_in_days = 7
 
   tags = {
-    Name    = "{{$.Name}}-{{$k}}"
+    Name    = "${local.env}-{{$.Name}}-{{$k}}"
     Service = "{{$svcName}}"
   }
 }
 
 resource "aws_secretsmanager_secret_version" "{{tfid $.Name}}_{{tfid $k}}" {
   secret_id     = aws_secretsmanager_secret.{{tfid $.Name}}_{{tfid $k}}.id
-  secret_string = "REPLACE_ME"
+  secret_string = random_password.{{tfid $.Name}}_{{tfid $k}}.result
 
   lifecycle {
     ignore_changes = [secret_string]
   }
 }
-{{end}}{{end}}{{end}}`
+
+resource "random_password" "{{tfid $.Name}}_{{tfid $k}}" {
+  length           = 32
+  special          = true
+  override_special = "!#$%&*()-_=+[]{}<>:?"
+}
+{{end}}{{end}}{{end}}{{end}}{{end}}`
 
 const backendTmpl = `# ── Terraform Remote State ────────────────────────────────────────────────────
 # Uncomment and fill in bucket/table names after running:
@@ -170,21 +176,21 @@ const backendTmpl = `# ── Terraform Remote State ─────────
 
 # terraform {
 #   backend "s3" {
-#     bucket         = "{{.Name}}-terraform-state"
+#     bucket         = "${local.env}-{{.Name}}-terraform-state-${data.aws_caller_identity.current.account_id}"
 #     key            = "terraform.tfstate"
 #     region         = "{{.Region}}"
 #     encrypt        = true
-#     kms_key_id     = "alias/{{.Name}}"
-#     dynamodb_table = "{{.Name}}-terraform-lock"
+#     kms_key_id     = "alias/${local.env}-{{.Name}}"
+#     dynamodb_table = "${local.env}-{{.Name}}-terraform-lock"
 #   }
 # }
 
 resource "aws_s3_bucket" "{{tfid .Name}}_tfstate" {
-  bucket        = "{{.Name}}-terraform-state"
+  bucket        = "${local.env}-{{.Name}}-terraform-state-${data.aws_caller_identity.current.account_id}"
   force_destroy = false
 
   tags = {
-    Name = "{{.Name}}-terraform-state"
+    Name = "${local.env}-{{.Name}}-terraform-state"
   }
 }
 
