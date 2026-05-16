@@ -261,6 +261,7 @@ This project includes modern developer experience tools:
 - **Pre-commit hooks** - Local quality gates before commits
 
 See [DEVELOPMENT.md](DEVELOPMENT.md) for comprehensive guides on:
+
 - Development workflow
 - Testing and debugging
 - API documentation
@@ -270,10 +271,12 @@ See [DEVELOPMENT.md](DEVELOPMENT.md) for comprehensive guides on:
 ### API Documentation
 
 After starting the server (`make run-server`), visit:
+
 - **Swagger UI:** http://localhost:8080/swagger/index.html
 - **Health check:** http://localhost:8080/healthz
 
 Generate/update API docs:
+
 ```bash
 make swag
 ```

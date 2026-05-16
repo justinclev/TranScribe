@@ -6,8 +6,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/justinclev/transcribe/internal/api"
 	_ "github.com/justinclev/transcribe/docs" // swagger docs
+	"github.com/justinclev/transcribe/internal/api"
 )
 
 // @title TranScribe API

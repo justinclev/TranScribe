@@ -91,7 +91,7 @@ archives:
 
 # Checksums
 checksum:
-  name_template: 'checksums.txt'
+  name_template: "checksums.txt"
 
 # Snapshot configuration for development builds
 snapshot:
@@ -103,23 +103,23 @@ changelog:
   use: github
   filters:
     exclude:
-      - '^docs:'
-      - '^test:'
-      - '^ci:'
-      - '^chore:'
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
       - Merge pull request
       - Merge branch
   groups:
-    - title: 'New Features'
+    - title: "New Features"
       regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
       order: 0
-    - title: 'Bug Fixes'
+    - title: "Bug Fixes"
       regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
       order: 1
-    - title: 'Performance Improvements'
+    - title: "Performance Improvements"
       regexp: '^.*?perf(\([[:word:]]+\))??!?:.+$'
       order: 2
-    - title: 'Other Changes'
+    - title: "Other Changes"
       order: 999
 
 # Docker images
@@ -175,16 +175,16 @@ release:
   mode: replace
   header: |
     ## TranScribe {{ .Tag }} ({{ .Date }})
-    
+
     Welcome to this new release of TranScribe!
   footer: |
     **Full Changelog**: https://github.com/justinclev/transcribe/compare/{{ .PreviousTag }}...{{ .Tag }}
-    
+
     ## Installation
-    
+
     ### CLI
     Download the appropriate binary for your platform from the assets below.
-    
+
     ### Docker
     ```bash
     docker pull ghcr.io/justinclev/transcribe:{{ .Version }}
