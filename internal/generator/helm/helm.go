@@ -10,7 +10,7 @@ package helm
 
 import (
 	"github.com/justinclev/transcribe/internal/generator/render"
-	"github.com/justinclev/transcribe/pkg/models"
+	"github.com/justinclev/transcribe/internal/models"
 )
 
 // Generate writes all Helm chart files into outputDir.

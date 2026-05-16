@@ -1,0 +1,203 @@
+# GoReleaser configuration
+# https://goreleaser.com
+
+version: 2
+
+# Project metadata
+project_name: transcribe
+
+# Before hooks - run before building
+before:
+  hooks:
+    - go mod tidy
+    - go mod download
+
+# Build configuration
+builds:
+  # CLI binary
+  - id: cli
+    main: ./cmd/cli
+    binary: transcribe
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+    flags:
+      - -trimpath
+
+  # Server binary
+  - id: server
+    main: ./cmd/server
+    binary: transcribe-server
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+    flags:
+      - -trimpath
+
+# Archive configuration
+archives:
+  - id: cli
+    builds:
+      - cli
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - README.md
+      - LICENSE*
+
+  - id: server
+    builds:
+      - server
+    name_template: >-
+      {{ .ProjectName }}-server_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+    files:
+      - README.md
+      - LICENSE*
+
+# Checksums
+checksum:
+  name_template: 'checksums.txt'
+
+# Snapshot configuration for development builds
+snapshot:
+  name_template: "{{ incpatch .Version }}-next"
+
+# Changelog configuration
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^ci:'
+      - '^chore:'
+      - Merge pull request
+      - Merge branch
+  groups:
+    - title: 'New Features'
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: 'Bug Fixes'
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: 'Performance Improvements'
+      regexp: '^.*?perf(\([[:word:]]+\))??!?:.+$'
+      order: 2
+    - title: 'Other Changes'
+      order: 999
+
+# Docker images
+dockers:
+  - image_templates:
+      - "ghcr.io/justinclev/transcribe:{{ .Version }}-amd64"
+      - "ghcr.io/justinclev/transcribe:latest-amd64"
+    use: buildx
+    dockerfile: Dockerfile
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+    ids:
+      - server
+
+  - image_templates:
+      - "ghcr.io/justinclev/transcribe:{{ .Version }}-arm64"
+      - "ghcr.io/justinclev/transcribe:latest-arm64"
+    use: buildx
+    dockerfile: Dockerfile
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+    goarch: arm64
+    ids:
+      - server
+
+# Docker manifests for multi-arch support
+docker_manifests:
+  - name_template: "ghcr.io/justinclev/transcribe:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/justinclev/transcribe:{{ .Version }}-amd64"
+      - "ghcr.io/justinclev/transcribe:{{ .Version }}-arm64"
+
+  - name_template: "ghcr.io/justinclev/transcribe:latest"
+    image_templates:
+      - "ghcr.io/justinclev/transcribe:latest-amd64"
+      - "ghcr.io/justinclev/transcribe:latest-arm64"
+
+# Release configuration
+release:
+  github:
+    owner: justinclev
+    name: transcribe
+  draft: false
+  prerelease: auto
+  mode: replace
+  header: |
+    ## TranScribe {{ .Tag }} ({{ .Date }})
+    
+    Welcome to this new release of TranScribe!
+  footer: |
+    **Full Changelog**: https://github.com/justinclev/transcribe/compare/{{ .PreviousTag }}...{{ .Tag }}
+    
+    ## Installation
+    
+    ### CLI
+    Download the appropriate binary for your platform from the assets below.
+    
+    ### Docker
+    ```bash
+    docker pull ghcr.io/justinclev/transcribe:{{ .Version }}
+    ```
+
+# Homebrew tap (optional - configure if you want homebrew distribution)
+# brews:
+#   - name: transcribe
+#     repository:
+#       owner: justinclev
+#       name: homebrew-tap
+#     homepage: https://github.com/justinclev/transcribe
+#     description: Convert Docker Compose files to Infrastructure as Code
+#     license: MIT
+#     install: |
+#       bin.install "transcribe"

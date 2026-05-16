@@ -13,7 +13,7 @@ import (
 	gcpgen "github.com/justinclev/transcribe/internal/generator/gcp"
 	helmgen "github.com/justinclev/transcribe/internal/generator/helm"
 	pulumigen "github.com/justinclev/transcribe/internal/generator/pulumi"
-	"github.com/justinclev/transcribe/pkg/models"
+	"github.com/justinclev/transcribe/internal/models"
 )
 
 // Generate writes IaC output for bp into outputDir.

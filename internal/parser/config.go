@@ -8,7 +8,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/justinclev/transcribe/pkg/models"
+	"github.com/justinclev/transcribe/internal/models"
 )
 
 // ---------------------------------------------------------------------------

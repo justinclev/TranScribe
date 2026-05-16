@@ -13,7 +13,7 @@ import (
 	"text/template"
 
 	"github.com/justinclev/transcribe/internal/generator/render"
-	"github.com/justinclev/transcribe/pkg/models"
+	"github.com/justinclev/transcribe/internal/models"
 )
 
 // Generate writes all CDK TypeScript files into outputDir.

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/justinclev/transcribe/pkg/models"
+	"github.com/justinclev/transcribe/internal/models"
 )
 
 func awsBP() *models.Blueprint {

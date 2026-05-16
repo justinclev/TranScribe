@@ -223,39 +223,72 @@ services:
 
 ## Development
 
+> 📖 **For detailed development documentation, see [DEVELOPMENT.md](DEVELOPMENT.md)**
+
+### Quick Start
+
+```bash
+# Install development tools
+make install-tools
+
+# Run all checks (format, lint, test)
+make all
+
+# Run tests
+make test
+
+# Run server with hot reloading
+make run-server-air
+
+# View all available commands
+make help
+```
+
 ### Prerequisites
 
 - Go 1.22+
-- Docker (optional, for containerised workflows)
+- Docker (optional, for containerized workflows)
+- make (pre-installed on macOS/Linux)
 
-### Run tests
+### Development Tools
 
+This project includes modern developer experience tools:
+
+- **Makefile** - Unified command interface (`make test`, `make lint`, etc.)
+- **Swagger/OpenAPI** - Interactive API docs at `/swagger/index.html`
+- **Air** - Hot reloading for rapid development
+- **GoReleaser** - Automated multi-platform releases
+- **Pre-commit hooks** - Local quality gates before commits
+
+See [DEVELOPMENT.md](DEVELOPMENT.md) for comprehensive guides on:
+- Development workflow
+- Testing and debugging
+- API documentation
+- Release process
+- Best practices
+
+### API Documentation
+
+After starting the server (`make run-server`), visit:
+- **Swagger UI:** http://localhost:8080/swagger/index.html
+- **Health check:** http://localhost:8080/healthz
+
+Generate/update API docs:
 ```bash
-go test ./...
-
-# With race detector
-go test -race ./...
+make swag
 ```
 
-### Run the server locally
+### Docker Compose (for local development)
 
 ```bash
-go run cmd/server/main.go
-# PORT env var overrides the default :8080
-PORT=9090 go run cmd/server/main.go
-```
+# Start services
+make docker-up
 
-### Docker Compose (recommended for local dev)
+# View logs
+make docker-logs
 
-```bash
-# Start API server with live reload
-docker compose up
-
-# Run the test suite once and exit
-docker compose run --rm test
-
-# Run the CLI against a local compose file
-FILE=path/to/docker-compose.yml docker compose run --rm cli
+# Stop services
+make docker-down
 ```
 
 ### Project layout

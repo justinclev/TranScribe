@@ -3,7 +3,7 @@ package generator
 import (
 	"fmt"
 
-	"github.com/justinclev/transcribe/pkg/models"
+	"github.com/justinclev/transcribe/internal/models"
 )
 
 // validateBlueprint checks for configuration errors that would produce invalid

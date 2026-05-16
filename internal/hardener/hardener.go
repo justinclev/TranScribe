@@ -9,7 +9,7 @@ import (
 	"net"
 	"strings"
 
-	"github.com/justinclev/transcribe/pkg/models"
+	"github.com/justinclev/transcribe/internal/models"
 )
 
 // Harden applies all three hardening rules to bp in place, then marks it as

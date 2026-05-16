@@ -15,8 +15,8 @@ import (
 
 	"github.com/justinclev/transcribe/internal/generator"
 	"github.com/justinclev/transcribe/internal/hardener"
+	"github.com/justinclev/transcribe/internal/models"
 	"github.com/justinclev/transcribe/internal/parser"
-	"github.com/justinclev/transcribe/pkg/models"
 )
 
 // maxUploadBytes caps the multipart memory buffer at 8 MiB; anything larger
@@ -51,6 +51,20 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 //	Body:                zip containing main.tf, vpc.tf, iam.tf
 //
 // Error responses use JSON: {"error":"<message>"}.
+//
+// @Summary Convert Docker Compose to Infrastructure as Code
+// @Description Uploads a docker-compose.yml file and optional config, then generates IaC (Terraform/Pulumi/CDK/Helm)
+// @Tags transcribe
+// @Accept multipart/form-data
+// @Produce application/zip
+// @Param file formData file true "Docker Compose file"
+// @Param config formData file false "Optional TranScribe configuration file"
+// @Param provider formData string false "Cloud provider" Enums(aws, azure, gcp) default(aws)
+// @Param format formData string false "Output format" Enums(terraform, pulumi, cdk, helm) default(terraform)
+// @Success 200 {file} file "ZIP archive containing generated IaC files"
+// @Failure 400 {object} apiError "Invalid input"
+// @Failure 500 {object} apiError "Internal server error"
+// @Router /api/v1/transcribe [post]
 func handleTranscribe(w http.ResponseWriter, r *http.Request) {
 	// ── 1. Parse the multipart form ────────────────────────────────────────
 	if err := r.ParseMultipartForm(maxUploadBytes); err != nil {

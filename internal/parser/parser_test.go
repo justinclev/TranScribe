@@ -6,7 +6,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/justinclev/transcribe/pkg/models"
+	"github.com/justinclev/transcribe/internal/models"
 )
 
 // ---------------------------------------------------------------------------

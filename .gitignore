@@ -1,0 +1,27 @@
+out/
+.DS_Store
+*.zip
+coverage.out
+cover.out
+
+# Build artifacts
+bin/
+tmp/
+dist/
+*.log
+
+# Swagger/OpenAPI generated files
+docs/docs.go
+docs/swagger.json
+docs/swagger.yaml
+
+# Coverage reports
+coverage.html
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
